@@ -5,6 +5,10 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val appVersionName = "1.06"
+val devVersionName = "1.13"
+val devVersionCode = 9
+
 android {
     namespace = "com.sungyoon.helper"
     compileSdk = 36
@@ -13,12 +17,18 @@ android {
         applicationId = "com.sungyoon.helper"
         minSdk = 24
         targetSdk = 36
-        versionCode = 9
-        versionName = "1.13"
+        // App version is user-facing and only changes on explicit request.
+        versionName = appVersionName
+        // Development version is internal and can track git/release progress.
+        versionCode = devVersionCode
+        buildConfigField("String", "APP_VERSION_NAME", "\"$appVersionName\"")
+        buildConfigField("String", "DEV_VERSION_NAME", "\"$devVersionName\"")
+        buildConfigField("int", "DEV_VERSION_CODE", devVersionCode.toString())
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
