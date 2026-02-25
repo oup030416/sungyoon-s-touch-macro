@@ -107,6 +107,12 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private val moveStickLineWidthPx = dp(3)
     private val moveStickDesiredLenPx = dp(70)
     private val moveStickMarginPx = dp(6)
+    private val dragLinkThicknessPx = dp(3).toFloat()
+    private val dragLinkHeightPx = dp(22)
+    private val dragArrowLengthPx = dp(10).toFloat()
+    private val dragArrowHalfWidthPx = dp(6).toFloat()
+    private val dragLinkInsetMarginPx = dp(2).toFloat()
+    private val dragLinkMinVisibleLenPx = dp(10).toFloat()
 
     private val moveStickHandle: ImageButton = ImageButton(context).apply {
         setImageResource(R.drawable.ic_move_24)
@@ -138,7 +144,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private val views = HashMap<String, DraggablePointerView>() // start handle
     private val dragEndViews = HashMap<String, DraggablePointerView>() // end handle
-    private val dragLinkViews = HashMap<String, View>() // start-end connector for drag action
+    private val dragLinkViews = HashMap<String, DragDirectionLinkView>() // start-end connector for drag action
     private val randomRadiusViews = HashMap<String, View>() // tap random radius ring
     private val pointerViewToTarget = HashMap<DraggablePointerView, Pair<String, Endpoint>>()
     private val tmpLoc = IntArray(2)
@@ -915,21 +921,22 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         updateMoveStickPosition()
     }
 
-    private fun ensureDragLinkForPoint(pointId: String): View {
+    private fun ensureDragLinkForPoint(pointId: String): DragDirectionLinkView {
         dragLinkViews[pointId]?.let { return it }
 
-        val v = View(context).apply {
+        val v = DragDirectionLinkView(
+            context = context,
+            lineThicknessPx = dragLinkThicknessPx,
+            arrowLengthPx = dragArrowLengthPx,
+            arrowHalfWidthPx = dragArrowHalfWidthPx,
+            color = Color.parseColor("#CCFFFFFF")
+        ).apply {
             alpha = 0.85f
-            background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(1).toFloat()
-                setColor(Color.parseColor("#CCFFFFFF"))
-            }
         }
         pointerLayer.addView(
             v,
             0,
-            FrameLayout.LayoutParams(dp(2), dp(2)).apply {
+            FrameLayout.LayoutParams(dp(2), dragLinkHeightPx).apply {
                 gravity = Gravity.TOP or Gravity.START
             }
         )
@@ -958,19 +965,36 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val dx = ex - sx
         val dy = ey - sy
         val len = max(1f, hypot(dx, dy))
-        val thick = dp(3)
-        val halfThick = thick / 2f
+        if (len < dragLinkMinVisibleLenPx) {
+            line.visibility = View.GONE
+            return
+        }
+
+        val desiredStartInset = pointerDrawRadiusPx + dragLinkInsetMarginPx
+        val desiredEndInset = pointerDrawRadiusPx + dragLinkInsetMarginPx
+        val maxInsetSum = (len - dragLinkMinVisibleLenPx).coerceAtLeast(0f)
+        val desiredInsetSum = desiredStartInset + desiredEndInset
+        val insetScale = if (desiredInsetSum <= 0f || desiredInsetSum <= maxInsetSum) {
+            1f
+        } else {
+            maxInsetSum / desiredInsetSum
+        }
+        val startInset = desiredStartInset * insetScale
+        val endInset = desiredEndInset * insetScale
+        line.setInsets(startInsetPx = startInset, endInsetPx = endInset)
+        line.visibility = View.VISIBLE
 
         val lp = (line.layoutParams as FrameLayout.LayoutParams).apply {
             width = len.roundToInt()
-            height = thick
+            height = dragLinkHeightPx
             gravity = Gravity.TOP or Gravity.START
         }
         line.layoutParams = lp
+        val halfLinkHeight = dragLinkHeightPx / 2f
         line.pivotX = 0f
-        line.pivotY = halfThick
+        line.pivotY = halfLinkHeight
         line.x = sx
-        line.y = sy - halfThick
+        line.y = sy - halfLinkHeight
         line.rotation = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
     }
 
