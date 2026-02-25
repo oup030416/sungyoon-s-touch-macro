@@ -6,13 +6,8 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.view.View
-import kotlin.math.min
+import kotlin.math.abs
 
-/**
- * ✅ 기존 OverlayView와 동일 기능/렌더링
- * - 원형 하이라이트 + 라벨 텍스트
- * - pulse(scale) 반영
- */
 class SequenceOverlayView(context: Context) : View(context) {
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -22,7 +17,7 @@ class SequenceOverlayView(context: Context) : View(context) {
 
     private val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 10f
+        strokeWidth = 6f
         color = 0xAA3F51B5.toInt()
     }
 
@@ -30,19 +25,33 @@ class SequenceOverlayView(context: Context) : View(context) {
         color = Color.WHITE
         textAlign = Paint.Align.CENTER
         typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        textSize = 54f
+        textSize = 24f
     }
 
     private var label: String = ""
-    private var pulse: Float = 1f
+    private var baseRadiusPx: Float = 18f
+    private var popScale: Float = 1f
 
     fun setLabel(text: String) {
-        label = text
+        if (label != text) {
+            label = text
+            invalidate()
+        }
+    }
+
+    fun setBaseRadiusPx(radiusPx: Float) {
+        val next = radiusPx.coerceAtLeast(1f)
+        if (abs(baseRadiusPx - next) < 0.5f) return
+        baseRadiusPx = next
+        ringPaint.strokeWidth = (next * 0.18f).coerceAtLeast(4f)
+        textPaint.textSize = (next * 1.05f).coerceAtLeast(12f)
         invalidate()
     }
 
-    fun setPulse(scale: Float) {
-        pulse = scale
+    fun setPopScale(scale: Float) {
+        val next = scale.coerceAtLeast(0.5f)
+        if (abs(popScale - next) < 0.01f) return
+        popScale = next
         invalidate()
     }
 
@@ -51,7 +60,7 @@ class SequenceOverlayView(context: Context) : View(context) {
 
         val cx = width / 2f
         val cy = height / 2f
-        val radius = (min(width, height) / 2f) * 0.8f * pulse
+        val radius = baseRadiusPx * popScale
 
         canvas.drawCircle(cx, cy, radius, fillPaint)
         canvas.drawCircle(cx, cy, radius, ringPaint)

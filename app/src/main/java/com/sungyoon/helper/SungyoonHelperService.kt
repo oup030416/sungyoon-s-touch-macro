@@ -10,6 +10,7 @@ import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import androidx.core.content.ContextCompat
 import com.sungyoon.helper.data.DragDurationStore
+import com.sungyoon.helper.data.PointerSizeStore
 import com.sungyoon.helper.data.PointsStore
 import com.sungyoon.helper.data.RandomTouchRadiusStore
 import com.sungyoon.helper.data.ReservationPrefsStore
@@ -26,12 +27,15 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import com.sungyoon.helper.util.PointerSizeSpec
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -58,6 +62,7 @@ class SungyoonHelperService : AccessibilityService() {
     @Volatile private var cachedTapIntervalMs: Long = 1000L
     @Volatile private var cachedDragDurationMs: Long = 300L
     @Volatile private var cachedRandomTouchRadiusDp: Int = 0
+    @Volatile private var cachedPointerSizeLevel: Int = PointerSizeSpec.DEFAULT_LEVEL
     @Volatile private var cachedRepeatEnabled: Boolean = true
     private val minDragDurationMs = 100L
     private val maxDragDurationMs = 10_000L
@@ -158,7 +163,12 @@ class SungyoonHelperService : AccessibilityService() {
 
                 val anyRunning = (runnerJob?.isActive == true) || (reservationJob?.isActive == true)
                 if (anyRunning) {
-                    if (enabled) overlay?.show() else overlay?.hide()
+                    if (enabled) {
+                        overlay?.show()
+                        syncOverlayPointerRadius()
+                    } else {
+                        overlay?.hide()
+                    }
                 } else {
                     overlay?.hide()
                 }
@@ -206,6 +216,15 @@ class SungyoonHelperService : AccessibilityService() {
             launch {
                 RandomTouchRadiusStore.randomTouchRadiusDpFlow(this@SungyoonHelperService).collectLatest { radiusDp ->
                     cachedRandomTouchRadiusDp = radiusDp.coerceIn(minRandomRadiusDp, maxRandomRadiusDp)
+                }
+            }
+            launch {
+                PointerSizeStore.pointerSizeLevelFlow(this@SungyoonHelperService).collectLatest { level ->
+                    cachedPointerSizeLevel = level.coerceIn(PointerSizeSpec.MIN_LEVEL, PointerSizeSpec.MAX_LEVEL)
+                    val anyRunning = (runnerJob?.isActive == true) || (reservationJob?.isActive == true)
+                    if (touchAnimationEnabled && anyRunning) {
+                        syncOverlayPointerRadius()
+                    }
                 }
             }
             launch {
@@ -294,7 +313,12 @@ class SungyoonHelperService : AccessibilityService() {
             SequencePrefsStore.setSequenceRunning(this@SungyoonHelperService, true)
             sendSequenceStarted()
 
-            if (touchAnimationEnabled) overlay?.show() else overlay?.hide()
+            if (touchAnimationEnabled) {
+                overlay?.show()
+                syncOverlayPointerRadius()
+            } else {
+                overlay?.hide()
+            }
 
             try {
                 while (isActive) {
@@ -338,20 +362,55 @@ class SungyoonHelperService : AccessibilityService() {
         return point.dragDurationMs.coerceIn(minDragDurationMs, maxDragDurationMs)
     }
 
+    private fun syncOverlayPointerRadius() {
+        val radiusDp = PointerSizeSpec.radiusDpForLevel(cachedPointerSizeLevel)
+        overlay?.setPointerRadiusDp(radiusDp)
+    }
+
     private suspend fun executePointAction(point: HighlightingPoint, label: String) {
         if (isDragAction(point)) {
-            if (touchAnimationEnabled) overlay?.moveTo(point.x, point.y, label = label)
-            dispatchDrag(
-                fromX = point.x,
-                fromY = point.y,
-                toX = point.dragToX,
-                toY = point.dragToY,
-                durationMs = dragDurationMs(point)
-            )
-            if (touchAnimationEnabled) overlay?.moveTo(point.dragToX, point.dragToY, label = label)
+            val durationMs = dragDurationMs(point)
+            if (touchAnimationEnabled) {
+                syncOverlayPointerRadius()
+                overlay?.moveTo(point.x, point.y, label = label)
+                overlay?.triggerPop()
+                coroutineScope {
+                    val visualJob = launch {
+                        overlay?.animateDragRealtime(
+                            fromX = point.x,
+                            fromY = point.y,
+                            toX = point.dragToX,
+                            toY = point.dragToY,
+                            durationMs = durationMs,
+                            label = label
+                        )
+                    }
+                    dispatchDrag(
+                        fromX = point.x,
+                        fromY = point.y,
+                        toX = point.dragToX,
+                        toY = point.dragToY,
+                        durationMs = durationMs
+                    )
+                    visualJob.cancelAndJoin()
+                }
+                overlay?.moveTo(point.dragToX, point.dragToY, label = label)
+            } else {
+                dispatchDrag(
+                    fromX = point.x,
+                    fromY = point.y,
+                    toX = point.dragToX,
+                    toY = point.dragToY,
+                    durationMs = durationMs
+                )
+            }
         } else {
             val (tapX, tapY) = resolveTapTarget(point)
-            if (touchAnimationEnabled) overlay?.moveTo(tapX, tapY, label = label)
+            if (touchAnimationEnabled) {
+                syncOverlayPointerRadius()
+                overlay?.moveTo(tapX, tapY, label = label)
+                overlay?.triggerPop()
+            }
             dispatchTap(tapX, tapY)
         }
     }
@@ -563,7 +622,12 @@ class SungyoonHelperService : AccessibilityService() {
 
 
     private suspend fun runPhaseUntil(endAtMs: Long) {
-        if (touchAnimationEnabled) overlay?.show() else overlay?.hide()
+        if (touchAnimationEnabled) {
+            overlay?.show()
+            syncOverlayPointerRadius()
+        } else {
+            overlay?.hide()
+        }
 
         var lastReportedSec: Long = -1L
 

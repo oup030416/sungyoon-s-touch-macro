@@ -4,18 +4,14 @@ import android.accessibilityservice.AccessibilityService
 import android.animation.ValueAnimator
 import android.graphics.PixelFormat
 import android.os.Build
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 import android.view.Gravity
 import android.view.WindowManager
-import android.view.animation.LinearInterpolator
+import android.view.animation.DecelerateInterpolator
+import kotlinx.coroutines.delay
 
-/**
- * ✅ 기존 OverlayController와 동일 기능
- * - WindowManager로 하이라이트 뷰 표시/이동/숨김
- * - canDrawOverlays 여부에 따라 overlay type 선택
- * - pulse 애니메이션 동일(sin 기반, 16ms)
- */
 class SequenceOverlayController(
     private val service: AccessibilityService,
     private val tag: String
@@ -23,13 +19,15 @@ class SequenceOverlayController(
     private val wm = service.getSystemService(AccessibilityService.WINDOW_SERVICE) as WindowManager
     private var view: SequenceOverlayView? = null
     private var added = false
-
-    private var pulseAnimator: ValueAnimator? = null
+    private var popAnimator: ValueAnimator? = null
+    private var pointerRadiusPx: Float = 18f * service.resources.displayMetrics.density
 
     private fun overlayType(): Int {
         val canDraw = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             Settings.canDrawOverlays(service)
-        } else true
+        } else {
+            true
+        }
 
         return if (canDraw) {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -54,9 +52,9 @@ class SequenceOverlayController(
             sizePx,
             overlayType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT
         ).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -67,47 +65,84 @@ class SequenceOverlayController(
 
     fun show() {
         if (added) return
-
-        val v = SequenceOverlayView(service)
+        val v = SequenceOverlayView(service).apply {
+            setBaseRadiusPx(pointerRadiusPx)
+            setPopScale(1f)
+        }
         view = v
-
         wm.addView(v, lp)
         added = true
-
-        pulseAnimator?.cancel()
-        pulseAnimator = ValueAnimator.ofFloat(0.9f, 1.1f).apply {
-            duration = 420L
-            repeatCount = ValueAnimator.INFINITE
-            repeatMode = ValueAnimator.REVERSE
-            interpolator = LinearInterpolator()
-            addUpdateListener { animator ->
-                v.setPulse(animator.animatedValue as Float)
-            }
-            start()
-        }
     }
 
     fun hide() {
-        pulseAnimator?.cancel()
-        pulseAnimator = null
+        popAnimator?.cancel()
+        popAnimator = null
+        view?.setPopScale(1f)
 
         if (!added) return
         view?.let {
-            try { wm.removeView(it) } catch (_: Throwable) {}
+            try {
+                wm.removeView(it)
+            } catch (_: Throwable) {
+            }
         }
         view = null
         added = false
     }
 
+    fun setPointerRadiusDp(radiusDp: Int) {
+        val density = service.resources.displayMetrics.density
+        pointerRadiusPx = (radiusDp.coerceAtLeast(1) * density).coerceAtLeast(1f)
+        view?.setBaseRadiusPx(pointerRadiusPx)
+    }
+
+    fun triggerPop() {
+        val v = view ?: return
+        popAnimator?.cancel()
+        popAnimator = ValueAnimator.ofFloat(1f, 1.25f, 1f).apply {
+            duration = 160L
+            interpolator = DecelerateInterpolator()
+            addUpdateListener { animator ->
+                v.setPopScale(animator.animatedValue as Float)
+            }
+            start()
+        }
+    }
+
     fun moveTo(x: Float, y: Float, label: String) {
         view?.setLabel(label)
-
         lp.x = (x - sizePx / 2f).toInt()
         lp.y = (y - sizePx / 2f).toInt()
 
         view?.let {
-            try { wm.updateViewLayout(it, lp) }
-            catch (t: Throwable) { Log.e(tag, "updateViewLayout failed", t) }
+            try {
+                wm.updateViewLayout(it, lp)
+            } catch (t: Throwable) {
+                Log.e(tag, "updateViewLayout failed", t)
+            }
+        }
+    }
+
+    suspend fun animateDragRealtime(
+        fromX: Float,
+        fromY: Float,
+        toX: Float,
+        toY: Float,
+        durationMs: Long,
+        label: String
+    ) {
+        val duration = durationMs.coerceAtLeast(1L)
+        val startAt = SystemClock.uptimeMillis()
+        moveTo(fromX, fromY, label)
+
+        while (true) {
+            val elapsed = (SystemClock.uptimeMillis() - startAt).coerceAtLeast(0L)
+            val t = (elapsed.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+            val x = fromX + (toX - fromX) * t
+            val y = fromY + (toY - fromY) * t
+            moveTo(x, y, label)
+            if (t >= 1f) break
+            delay(16L)
         }
     }
 

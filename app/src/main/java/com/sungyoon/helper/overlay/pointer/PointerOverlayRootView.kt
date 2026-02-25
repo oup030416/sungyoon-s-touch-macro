@@ -19,6 +19,7 @@ import androidx.core.view.children
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
+import com.sungyoon.helper.util.PointerSizeSpec
 import java.util.Locale
 import kotlin.math.atan2
 import kotlin.math.abs
@@ -32,15 +33,15 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private val density = resources.displayMetrics.density
 
-    private val SIZE_LEVEL_TO_RADIUS_DP = intArrayOf(8, 10, 12, 14, 16, 18, 20, 22, 24, 26)
     private val PLAY_RUNNING_FILL_COLOR = Color.parseColor("#334CAF50")
     private val PLAY_STANDBY_FILL_COLOR = Color.parseColor("#664CAF50")
 
     // 터치 UX: 실제 터치 가능한 영역은 크게 (최소 56dp 고정)
     private val pointerTouchSizePx = dp(56)
 
-    private var pointerSizeLevel: Int = 8
-    private var pointerDrawRadiusPx: Float = dp(18).toFloat()
+    private var pointerSizeLevel: Int = PointerSizeSpec.DEFAULT_LEVEL
+    private var pointerDrawRadiusPx: Float =
+        dp(PointerSizeSpec.radiusDpForLevel(PointerSizeSpec.DEFAULT_LEVEL)).toFloat()
 
     private var panelVisible: Boolean = true
     private val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -374,11 +375,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     }
 
     fun setPointerSizeLevel(level: Int) {
-        val next = level.coerceIn(1, 10)
+        val next = level.coerceIn(PointerSizeSpec.MIN_LEVEL, PointerSizeSpec.MAX_LEVEL)
         pointerSizeLevel = next
-        pointerDrawRadiusPx = dp(SIZE_LEVEL_TO_RADIUS_DP[next - 1]).toFloat()
-
-        val rDp = SIZE_LEVEL_TO_RADIUS_DP[next - 1]
+        pointerDrawRadiusPx = dp(PointerSizeSpec.radiusDpForLevel(next)).toFloat()
         controls.pointerSizeValueText.text = "${next}"
 
         suppressPointerSizeListener = true

@@ -13,8 +13,8 @@ android {
         applicationId = "com.sungyoon.helper"
         minSdk = 24
         targetSdk = 36
-        versionCode = 8
-        versionName = "1.12"
+        versionCode = 9
+        versionName = "1.13"
     }
 
     buildFeatures {
