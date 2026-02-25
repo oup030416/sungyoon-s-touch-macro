@@ -33,6 +33,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private val density = resources.displayMetrics.density
 
     private val SIZE_LEVEL_TO_RADIUS_DP = intArrayOf(8, 10, 12, 14, 16, 18, 20, 22, 24, 26)
+    private val PLAY_RUNNING_FILL_COLOR = Color.parseColor("#334CAF50")
+    private val PLAY_STANDBY_FILL_COLOR = Color.parseColor("#664CAF50")
 
     // 터치 UX: 실제 터치 가능한 영역은 크게 (최소 56dp 고정)
     private val pointerTouchSizePx = dp(56)
@@ -579,7 +581,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.touchAnimToggleBtn.contentDescription =
             if (enabled) "터치 애니메이션 켜짐" else "터치 애니메이션 꺼짐"
         controls.touchAnimToggleBtn.background = PointerOverlayDrawables.roundedRippleBg(
-            fillColor = if (enabled) Color.parseColor("#4D5B5CE6") else Color.parseColor("#2FFFFFFF"),
+            fillColor = if (enabled) PLAY_STANDBY_FILL_COLOR else Color.parseColor("#2FFFFFFF"),
             rippleColor = Color.parseColor("#33FFFFFF"),
             dp = ::dp,
             radiusDp = 14
@@ -627,7 +629,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     fun setSequenceRunning(running: Boolean) {
         controls.playToggleBtn.text = if (running) "■" else "▶"
-        val fill = if (running) Color.parseColor("#334CAF50") else Color.parseColor("#664CAF50")
+        val fill = if (running) PLAY_RUNNING_FILL_COLOR else PLAY_STANDBY_FILL_COLOR
         controls.playToggleBtn.background = PointerOverlayDrawables.roundedRippleBg(
             fillColor = fill,
             rippleColor = Color.parseColor("#33FFFFFF"),

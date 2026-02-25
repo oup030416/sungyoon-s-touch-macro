@@ -46,6 +46,7 @@ object PointerOverlayControlsFactory {
 
     // level 1..10 -> radius dp
     private val SIZE_LEVEL_TO_RADIUS_DP = intArrayOf(8, 10, 12, 14, 15, 16, 17, 18, 19, 20)
+    private val PLAY_STANDBY_FILL_COLOR = Color.parseColor("#664CAF50")
 
     fun create(
         context: Context,
@@ -432,7 +433,7 @@ object PointerOverlayControlsFactory {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = Color.parseColor("#334CAF50"),
+                fillColor = PLAY_STANDBY_FILL_COLOR,
                 rippleColor = Color.parseColor("#33FFFFFF"),
                 dp = dp,
                 radiusDp = 14
@@ -449,7 +450,7 @@ object PointerOverlayControlsFactory {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = Color.parseColor("#4D5B5CE6"),
+                fillColor = PLAY_STANDBY_FILL_COLOR,
                 rippleColor = Color.parseColor("#33FFFFFF"),
                 dp = dp,
                 radiusDp = 14
@@ -523,9 +524,9 @@ object PointerOverlayControlsFactory {
         controlPanel.addView(headerRow)
         controlPanel.addView(hintText)
         controlPanel.addView(pointerSizeRow)
+        controlPanel.addView(randomRadiusRow)
         controlPanel.addView(intervalRow)
         controlPanel.addView(dragDurationRow)
-        controlPanel.addView(randomRadiusRow)
         controlPanel.addView(actionsCol)
 
         return PointerOverlayControlsViews(
