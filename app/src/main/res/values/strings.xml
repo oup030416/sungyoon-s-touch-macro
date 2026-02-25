@@ -1,5 +1,7 @@
 <resources>
     <string name="app_name">성윤 매크로</string>
-    <string name="accessibility_service_label">Sungyoon helper</string>
-    <string name="accessibility_service_description">Highlights predefined points and performs gesture taps to assist users.</string>
+    <string name="accessibility_service_label">성윤 도우미</string>
+    <string name="accessibility_service_description">설정한 포인트를 강조하고 탭/드래그 제스처를 자동 수행합니다.</string>
+    <string name="pointer_add_drag">드래그 추가</string>
+    <string name="pointer_drag_added">드래그 포인터 추가</string>
 </resources>
