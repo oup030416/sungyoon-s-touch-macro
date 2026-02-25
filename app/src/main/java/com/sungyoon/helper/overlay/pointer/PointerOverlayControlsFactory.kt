@@ -33,6 +33,7 @@ data class PointerOverlayControlsViews(
     val collapseBtn: ImageButton,
     val closeBtn: ImageButton,
     val intervalEdit: EditText,
+    val dragDurationEdit: EditText,
     val pointerSizeSeek: SeekBar,
     val pointerSizeValueText: TextView,
     val subtitleText: TextView,
@@ -241,6 +242,55 @@ object PointerOverlayControlsFactory {
         intervalRow.addView(intervalLabel)
         intervalRow.addView(intervalEdit)
 
+        // ---- 드래그 시간 ----
+        val dragDurationRow = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(8) }
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val dragDurationLabel = TextView(context).apply {
+            text = context.getString(R.string.pointer_drag_duration_label)
+            setTextColor(Color.parseColor("#E6FFFFFF"))
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        val dragDurationBg = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            setColor(Color.parseColor("#1FFFFFFF"))
+            cornerRadius = dp(14).toFloat()
+            setStroke(dp(1), Color.parseColor("#33FFFFFF"))
+        }
+
+        val dragDurationEdit = EditText(context).apply {
+            setText("0.3")
+            setSelection(text?.length ?: 0)
+            setTextColor(Color.WHITE)
+            setHintTextColor(Color.parseColor("#80FFFFFF"))
+            hint = context.getString(R.string.pointer_drag_duration_hint)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            filters = arrayOf(
+                InputFilter.LengthFilter(5),
+                OneDecimalSecondsFilter()
+            )
+            gravity = Gravity.CENTER
+            background = dragDurationBg
+            setPadding(dp(12), dp(9), dp(12), dp(9))
+            layoutParams = LinearLayout.LayoutParams(dp(90), LinearLayout.LayoutParams.WRAP_CONTENT)
+            minHeight = dp(42)
+            isFocusableInTouchMode = true
+        }
+
+        dragDurationRow.addView(dragDurationLabel)
+        dragDurationRow.addView(dragDurationEdit)
+
         // ---- 버튼들 ----
         val actionsCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
@@ -424,6 +474,7 @@ object PointerOverlayControlsFactory {
         controlPanel.addView(hintText)
         controlPanel.addView(pointerSizeRow)
         controlPanel.addView(intervalRow)
+        controlPanel.addView(dragDurationRow)
         controlPanel.addView(actionsCol)
 
         return PointerOverlayControlsViews(
@@ -438,6 +489,7 @@ object PointerOverlayControlsFactory {
             collapseBtn = collapseBtn,
             closeBtn = closeBtn,
             intervalEdit = intervalEdit,
+            dragDurationEdit = dragDurationEdit,
             pointerSizeSeek = pointerSizeSeek,
             pointerSizeValueText = pointerSizeValueText,
             subtitleText = subtitleText,

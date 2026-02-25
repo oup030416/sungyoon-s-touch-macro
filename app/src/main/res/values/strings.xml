@@ -4,4 +4,6 @@
     <string name="accessibility_service_description">설정한 포인트를 강조하고 탭/드래그 제스처를 자동 수행합니다.</string>
     <string name="pointer_add_drag">드래그 추가</string>
     <string name="pointer_drag_added">드래그 포인터 추가</string>
+    <string name="pointer_drag_duration_label">드래그 시간 (초)</string>
+    <string name="pointer_drag_duration_hint">0.3</string>
 </resources>

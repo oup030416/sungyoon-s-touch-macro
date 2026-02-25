@@ -11,6 +11,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -200,7 +201,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             }
         }
 
-        setupIntervalIme()
+        setupSecondsIme(controls.intervalEdit)
+        setupSecondsIme(controls.dragDurationEdit)
         setupPointerSizeSeek()
         setupMoveStickHandleDrag()
 
@@ -219,6 +221,13 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 !isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.intervalEdit)
             ) {
                 controls.intervalEdit.clearFocus()
+                hideKeyboard()
+                requestIme(false)
+            }
+            if (controls.dragDurationEdit.hasFocus() &&
+                !isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.dragDurationEdit)
+            ) {
+                controls.dragDurationEdit.clearFocus()
                 hideKeyboard()
                 requestIme(false)
             }
@@ -381,8 +390,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         onRequestIme?.invoke(enable)
     }
 
-    private fun setupIntervalIme() {
-        val edit = controls.intervalEdit
+    private fun setupSecondsIme(edit: EditText) {
         edit.imeOptions = EditorInfo.IME_ACTION_DONE
         edit.setSingleLine(true)
 
@@ -446,7 +454,12 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private fun hideKeyboard() {
         try {
-            imm.hideSoftInputFromWindow(controls.intervalEdit.windowToken, 0)
+            val token = controls.intervalEdit.windowToken
+                ?: controls.dragDurationEdit.windowToken
+                ?: windowToken
+            if (token != null) {
+                imm.hideSoftInputFromWindow(token, 0)
+            }
         } catch (_: Throwable) {
         }
     }
@@ -486,6 +499,11 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
             if (controls.intervalEdit.hasFocus()) {
                 controls.intervalEdit.clearFocus()
+                hideKeyboard()
+                requestIme(false)
+            }
+            if (controls.dragDurationEdit.hasFocus()) {
+                controls.dragDurationEdit.clearFocus()
                 hideKeyboard()
                 requestIme(false)
             }
@@ -622,6 +640,34 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         return raw.toFloatOrNull()
     }
 
+    fun setDragDurationSeconds(seconds: Float) {
+        val s = String.format(Locale.US, "%.1f", seconds)
+        if (controls.dragDurationEdit.text?.toString() != s) {
+            controls.dragDurationEdit.setText(s)
+            controls.dragDurationEdit.setSelection(s.length)
+        }
+    }
+
+    fun setOnDragDurationChanged(block: (Float) -> Unit) {
+        controls.dragDurationEdit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun afterTextChanged(s: Editable?) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val raw = s?.toString().orEmpty()
+                if (raw.isBlank() || raw.endsWith(".")) return
+                val v = raw.toFloatOrNull() ?: return
+                val clamped = v.coerceIn(0.1f, 10.0f)
+                block(clamped)
+            }
+        })
+    }
+
+    fun getDragDurationSecondsOrNull(): Float? {
+        val raw = controls.dragDurationEdit.text?.toString().orEmpty()
+        if (raw.isBlank() || raw.endsWith(".")) return null
+        return raw.toFloatOrNull()
+    }
+
     fun syncPoints(
         points: List<HighlightingPoint>,
         labelProvider: (String, Endpoint) -> String,
@@ -696,30 +742,59 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
                 var downRawX = 0f
                 var downRawY = 0f
-                var moved = false
+                var downCenterX = 0f
+                var downCenterY = 0f
+                var dragging = false
 
                 setOnTouchListener { _, ev ->
                     when (ev.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             downRawX = ev.rawX
                             downRawY = ev.rawY
-                            moved = false
+                            downCenterX = getCenterX()
+                            downCenterY = getCenterY()
+                            dragging = false
                             true
                         }
 
                         MotionEvent.ACTION_MOVE -> {
                             val dx = ev.rawX - downRawX
                             val dy = ev.rawY - downRawY
-                            if (!moved && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
-                                moved = true
+                            if (!dragging && (abs(dx) > touchSlop || abs(dy) > touchSlop)) {
+                                dragging = true
+                                selectPointer(pointId, endpoint)
+                                onDragStartInternal?.invoke(pointId, endpoint)
+                            }
+                            if (dragging) {
+                                val newCx = downCenterX + dx
+                                val newCy = downCenterY + dy
+                                moveSelectedPointerToLocalCenter(
+                                    id = pointId,
+                                    endpoint = endpoint,
+                                    cx = newCx,
+                                    cy = newCy,
+                                    notifyMove = true
+                                )
                             }
                             true
                         }
 
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                            if (!moved) {
+                            if (dragging) {
+                                val current = if (endpoint == Endpoint.START) views[pointId] else dragEndViews[pointId]
+                                val cx = current?.getCenterX() ?: getCenterX()
+                                val cy = current?.getCenterY() ?: getCenterY()
+                                onDragEndInternal?.invoke(pointId, endpoint, cx, cy)
+
+                                val ph = pointerLayer.height
+                                stickPlaceBelow = if (ph > 0) {
+                                    cy < (ph / 2f)
+                                } else true
+                                updateMoveStickPosition(forceShow = true)
+                            } else if (ev.actionMasked == MotionEvent.ACTION_UP) {
                                 selectPointer(pointId, endpoint)
                             }
+                            dragging = false
                             true
                         }
 

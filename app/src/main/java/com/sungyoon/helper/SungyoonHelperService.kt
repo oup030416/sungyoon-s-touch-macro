@@ -9,6 +9,7 @@ import android.util.Log
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
 import androidx.core.content.ContextCompat
+import com.sungyoon.helper.data.DragDurationStore
 import com.sungyoon.helper.data.PointsStore
 import com.sungyoon.helper.data.ReservationPrefsStore
 import com.sungyoon.helper.data.ReservationRuntimeStore
@@ -49,7 +50,10 @@ class SungyoonHelperService : AccessibilityService() {
     @Volatile private var cachedCycleTotal: Int = 1
     @Volatile private var cachedPointsSorted: List<HighlightingPoint> = emptyList()
     @Volatile private var cachedTapIntervalMs: Long = 1000L
+    @Volatile private var cachedDragDurationMs: Long = 300L
     @Volatile private var cachedRepeatEnabled: Boolean = true
+    private val minDragDurationMs = 100L
+    private val maxDragDurationMs = 10_000L
 
     private var floatingToggle: FloatingToggleOverlayController? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -186,6 +190,11 @@ class SungyoonHelperService : AccessibilityService() {
                 }
             }
             launch {
+                DragDurationStore.dragDurationMsFlow(this@SungyoonHelperService).collectLatest { duration ->
+                    cachedDragDurationMs = duration.coerceIn(minDragDurationMs, maxDragDurationMs)
+                }
+            }
+            launch {
                 SequencePrefsStore.repeatEnabledFlow(this@SungyoonHelperService).collectLatest { repeatEnabled ->
                     cachedRepeatEnabled = repeatEnabled
                 }
@@ -310,7 +319,9 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
     private fun dragDurationMs(point: HighlightingPoint): Long {
-        return point.dragDurationMs.coerceAtLeast(1L)
+        val global = cachedDragDurationMs
+        if (global > 0L) return global.coerceIn(minDragDurationMs, maxDragDurationMs)
+        return point.dragDurationMs.coerceIn(minDragDurationMs, maxDragDurationMs)
     }
 
     private suspend fun executePointAction(point: HighlightingPoint, label: String) {

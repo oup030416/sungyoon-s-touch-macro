@@ -16,16 +16,16 @@ import com.sungyoon.helper.core.permissions.isOverlayGranted
 import com.sungyoon.helper.core.permissions.isServiceEnabled
 import com.sungyoon.helper.core.permissions.openAccessibilitySettings
 import com.sungyoon.helper.core.permissions.openOverlaySettings
+import com.sungyoon.helper.data.DragDurationStore
 import com.sungyoon.helper.data.PointsStore
-import com.sungyoon.helper.data.SequencePrefsStore
-import com.sungyoon.helper.data.TapIntervalStore
 import com.sungyoon.helper.data.PointerSizeStore
 import com.sungyoon.helper.data.ReservationPrefsStore
 import com.sungyoon.helper.data.ReservationRuntimeStore
+import com.sungyoon.helper.data.SequencePrefsStore
+import com.sungyoon.helper.data.TapIntervalStore
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_TAP
-import com.sungyoon.helper.model.HighlightingPoint.Companion.DEFAULT_DRAG_DURATION_MS
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -46,6 +46,7 @@ class PointerOverlayController(private val app: Context) {
     private var collectJob: Job? = null
     private var prefsJob: Job? = null
     private var tapIntervalPersistJob: Job? = null
+    private var dragDurationPersistJob: Job? = null
 
     private var latestPoints: List<HighlightingPoint> = emptyList()
     private val draggingIds = HashSet<String>()
@@ -53,12 +54,15 @@ class PointerOverlayController(private val app: Context) {
     private var sequenceRunning: Boolean = false
     private var repeatEnabled: Boolean = true
     private var tapIntervalMs: Long = 1000L
+    private var dragDurationMs: Long = 300L
     private var touchAnimEnabled: Boolean = true
 
     private var stateReceiver: BroadcastReceiver? = null
     private var receiverRegistered = false
 
     private var overlayLp: WindowManager.LayoutParams? = null
+    private val minDragDurationMs = 100L
+    private val maxDragDurationMs = 10_000L
 
     fun isShowing(): Boolean = added
 
@@ -201,6 +205,16 @@ class PointerOverlayController(private val app: Context) {
                 }
             }
 
+            setOnDragDurationChanged { seconds ->
+                val ms = secondsToMs(seconds)
+                dragDurationMs = ms
+                dragDurationPersistJob?.cancel()
+                dragDurationPersistJob = scope.launch {
+                    delay(250L)
+                    DragDurationStore.setDragDurationMs(app, ms)
+                }
+            }
+
             setOnPointerSizeChanged { level ->
                 scope.launch { PointerSizeStore.setPointerSizeLevel(app, level) }
             }
@@ -259,6 +273,8 @@ class PointerOverlayController(private val app: Context) {
         scope.launch {
             tapIntervalMs = TapIntervalStore.tapIntervalMsFlow(app).first().coerceAtLeast(100L)
             root?.setTapIntervalSeconds(tapIntervalMs / 1000f)
+            dragDurationMs = clampDragDurationMs(DragDurationStore.dragDurationMsFlow(app).first())
+            root?.setDragDurationSeconds(dragDurationMs / 1000f)
 
             sequenceRunning = SequencePrefsStore.sequenceRunningFlow(app).first()
             repeatEnabled = SequencePrefsStore.repeatEnabledFlow(app).first()
@@ -311,6 +327,8 @@ class PointerOverlayController(private val app: Context) {
         prefsJob = null
         tapIntervalPersistJob?.cancel()
         tapIntervalPersistJob = null
+        dragDurationPersistJob?.cancel()
+        dragDurationPersistJob = null
         unregisterSequenceStateReceiver()
         if (!added) return
         root?.let {
@@ -432,6 +450,13 @@ class PointerOverlayController(private val app: Context) {
                     root?.setPointerSizeLevel(level)
                 }
             }
+            launch {
+                DragDurationStore.dragDurationMsFlow(app).collectLatest { ms ->
+                    val clamped = clampDragDurationMs(ms)
+                    dragDurationMs = clamped
+                    root?.setDragDurationSeconds(clamped / 1000f)
+                }
+            }
         }
     }
 
@@ -504,11 +529,20 @@ class PointerOverlayController(private val app: Context) {
                     actionType = ACTION_TYPE_DRAG,
                     dragToX = ex,
                     dragToY = ey,
-                    dragDurationMs = DEFAULT_DRAG_DURATION_MS
+                    dragDurationMs = clampDragDurationMs(dragDurationMs)
                 )
             )
             toast(app.getString(R.string.pointer_drag_added))
         }
+    }
+
+    private fun secondsToMs(seconds: Float): Long {
+        val raw = ((seconds * 1000f) + 0.5f).toLong()
+        return clampDragDurationMs(raw)
+    }
+
+    private fun clampDragDurationMs(ms: Long): Long {
+        return ms.coerceIn(minDragDurationMs, maxDragDurationMs)
     }
 
     private fun pointerHalfSizePx(): Float {
