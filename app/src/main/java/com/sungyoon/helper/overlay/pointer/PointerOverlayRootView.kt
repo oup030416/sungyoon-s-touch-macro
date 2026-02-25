@@ -46,6 +46,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private var onPointerSizeChanged: ((Int) -> Unit)? = null
     private var suppressPointerSizeListener = false
+    private var onRandomTouchRadiusChanged: ((Int) -> Unit)? = null
+    private var suppressRandomRadiusListener = false
 
     private var onDeletePointClick: ((String) -> Unit)? = null
 
@@ -205,8 +207,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         setupSecondsIme(controls.intervalEdit)
         setupSecondsIme(controls.dragDurationEdit)
-        setupSecondsIme(controls.randomRadiusEdit)
         setupPointerSizeSeek()
+        setupRandomRadiusSeek()
         setupMoveStickHandleDrag()
 
         deletePointerBtn.setOnClickListener {
@@ -231,13 +233,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 !isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.dragDurationEdit)
             ) {
                 controls.dragDurationEdit.clearFocus()
-                hideKeyboard()
-                requestIme(false)
-            }
-            if (controls.randomRadiusEdit.hasFocus() &&
-                !isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.randomRadiusEdit)
-            ) {
-                controls.randomRadiusEdit.clearFocus()
                 hideKeyboard()
                 requestIme(false)
             }
@@ -462,11 +457,29 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         })
     }
 
+    private fun setupRandomRadiusSeek() {
+        controls.randomRadiusSeek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
+                if (suppressRandomRadiusListener) return
+                val clamped = progress.coerceIn(0, 120)
+                randomTouchRadiusDp = clamped
+                controls.randomRadiusValueText.text =
+                    context.getString(R.string.pointer_random_radius_value, clamped)
+                refreshRandomRadiusViews()
+                if (fromUser) {
+                    onRandomTouchRadiusChanged?.invoke(clamped)
+                }
+            }
+
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+        })
+    }
+
     private fun hideKeyboard() {
         try {
             val token = controls.intervalEdit.windowToken
                 ?: controls.dragDurationEdit.windowToken
-                ?: controls.randomRadiusEdit.windowToken
                 ?: windowToken
             if (token != null) {
                 imm.hideSoftInputFromWindow(token, 0)
@@ -515,11 +528,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             }
             if (controls.dragDurationEdit.hasFocus()) {
                 controls.dragDurationEdit.clearFocus()
-                hideKeyboard()
-                requestIme(false)
-            }
-            if (controls.randomRadiusEdit.hasFocus()) {
-                controls.randomRadiusEdit.clearFocus()
                 hideKeyboard()
                 requestIme(false)
             }
@@ -688,31 +696,23 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     fun setRandomTouchRadiusDp(value: Int) {
         val clamped = value.coerceIn(0, 120)
         randomTouchRadiusDp = clamped
-        val text = clamped.toString()
-        if (controls.randomRadiusEdit.text?.toString() != text) {
-            controls.randomRadiusEdit.setText(text)
-            controls.randomRadiusEdit.setSelection(text.length)
+        controls.randomRadiusValueText.text =
+            context.getString(R.string.pointer_random_radius_value, clamped)
+        suppressRandomRadiusListener = true
+        try {
+            controls.randomRadiusSeek.progress = clamped
+        } finally {
+            suppressRandomRadiusListener = false
         }
         refreshRandomRadiusViews()
     }
 
     fun setOnRandomTouchRadiusChanged(block: (Int) -> Unit) {
-        controls.randomRadiusEdit.addTextChangedListener(object : TextWatcher {
-            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-            override fun afterTextChanged(s: Editable?) {}
-            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                val raw = s?.toString().orEmpty()
-                if (raw.isBlank()) return
-                val value = raw.toIntOrNull() ?: return
-                block(value.coerceIn(0, 120))
-            }
-        })
+        onRandomTouchRadiusChanged = block
     }
 
     fun getRandomTouchRadiusDpOrNull(): Int? {
-        val raw = controls.randomRadiusEdit.text?.toString().orEmpty()
-        if (raw.isBlank()) return null
-        return raw.toIntOrNull()
+        return randomTouchRadiusDp
     }
 
     fun syncPoints(

@@ -68,7 +68,7 @@ object TouchPointerOverlay {
                     )
                 } catch (_: Throwable) {}
 
-                c.show()
+                c.show(forceOpenControlPanel = true)
             }
         }
     }

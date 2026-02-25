@@ -71,7 +71,7 @@ class PointerOverlayController(private val app: Context) {
 
     fun isShowing(): Boolean = added
 
-    fun show() {
+    fun show(forceOpenControlPanel: Boolean = false) {
         try {
             app.sendBroadcast(
                 Intent(SungyoonHelperService.ACTION_PAUSE_RESERVATION).apply {
@@ -313,7 +313,13 @@ class PointerOverlayController(private val app: Context) {
             rv.post {
                 val v = root ?: return@post
 
-                val effectivePanelVisible = if (reservationVisiblePref) true else panelVisiblePref
+                val effectivePanelVisible = if (forceOpenControlPanel) {
+                    true
+                } else if (reservationVisiblePref) {
+                    true
+                } else {
+                    panelVisiblePref
+                }
                 v.setControlPanelVisibleFromController(effectivePanelVisible)
 
                 if (reservationVisiblePref) {

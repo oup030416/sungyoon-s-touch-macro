@@ -6,6 +6,6 @@
     <string name="pointer_drag_added">드래그 포인터 추가</string>
     <string name="pointer_drag_duration_label">드래그 시간 (초)</string>
     <string name="pointer_drag_duration_hint">0.3</string>
-    <string name="pointer_random_radius_label">랜덤 터치 반지름 (dp)</string>
-    <string name="pointer_random_radius_hint">0</string>
+    <string name="pointer_random_radius_label">랜덤 반지름 크기</string>
+    <string name="pointer_random_radius_value">%1$ddp</string>
 </resources>

@@ -34,7 +34,8 @@ data class PointerOverlayControlsViews(
     val closeBtn: ImageButton,
     val intervalEdit: EditText,
     val dragDurationEdit: EditText,
-    val randomRadiusEdit: EditText,
+    val randomRadiusSeek: SeekBar,
+    val randomRadiusValueText: TextView,
     val pointerSizeSeek: SeekBar,
     val pointerSizeValueText: TextView,
     val subtitleText: TextView,
@@ -292,13 +293,21 @@ object PointerOverlayControlsFactory {
         dragDurationRow.addView(dragDurationLabel)
         dragDurationRow.addView(dragDurationEdit)
 
-        // ---- 랜덤 터치 반지름 ----
+        // ---- 랜덤 반지름 크기 ----
         val randomRadiusRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
+            orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
             ).apply { topMargin = dp(8) }
+        }
+
+        val randomRadiusTop = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            )
             gravity = Gravity.CENTER_VERTICAL
         }
 
@@ -310,36 +319,27 @@ object PointerOverlayControlsFactory {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val randomRadiusBg = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(Color.parseColor("#1FFFFFFF"))
-            cornerRadius = dp(14).toFloat()
-            setStroke(dp(1), Color.parseColor("#33FFFFFF"))
-        }
-
-        val randomRadiusEdit = EditText(context).apply {
-            setText("0")
-            setSelection(text?.length ?: 0)
-            setTextColor(Color.WHITE)
-            setHintTextColor(Color.parseColor("#80FFFFFF"))
-            hint = context.getString(R.string.pointer_random_radius_hint)
+        val randomRadiusValueText = TextView(context).apply {
+            text = context.getString(R.string.pointer_random_radius_value, 0)
+            setTextColor(Color.parseColor("#E6FFFFFF"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            inputType = InputType.TYPE_CLASS_NUMBER
-            filters = arrayOf(
-                InputFilter.LengthFilter(3),
-                IntInputFilter()
-            )
-            gravity = Gravity.CENTER
-            background = randomRadiusBg
-            setPadding(dp(12), dp(9), dp(12), dp(9))
-            layoutParams = LinearLayout.LayoutParams(dp(90), LinearLayout.LayoutParams.WRAP_CONTENT)
-            minHeight = dp(42)
-            isFocusableInTouchMode = true
         }
 
-        randomRadiusRow.addView(randomRadiusLabel)
-        randomRadiusRow.addView(randomRadiusEdit)
+        randomRadiusTop.addView(randomRadiusLabel)
+        randomRadiusTop.addView(randomRadiusValueText)
+
+        val randomRadiusSeek = SeekBar(context).apply {
+            max = 120
+            progress = 0
+            layoutParams = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+            ).apply { topMargin = dp(2) }
+        }
+
+        randomRadiusRow.addView(randomRadiusTop)
+        randomRadiusRow.addView(randomRadiusSeek)
 
         // ---- 버튼들 ----
         val actionsCol = LinearLayout(context).apply {
@@ -541,7 +541,8 @@ object PointerOverlayControlsFactory {
             closeBtn = closeBtn,
             intervalEdit = intervalEdit,
             dragDurationEdit = dragDurationEdit,
-            randomRadiusEdit = randomRadiusEdit,
+            randomRadiusSeek = randomRadiusSeek,
+            randomRadiusValueText = randomRadiusValueText,
             pointerSizeSeek = pointerSizeSeek,
             pointerSizeValueText = pointerSizeValueText,
             subtitleText = subtitleText,
@@ -570,24 +571,4 @@ object PointerOverlayControlsFactory {
         }
     }
 
-    private class IntInputFilter : InputFilter {
-        private val regex = Regex("^\\d{0,3}$")
-        override fun filter(
-            source: CharSequence?,
-            start: Int,
-            end: Int,
-            dest: Spanned?,
-            dstart: Int,
-            dend: Int
-        ): CharSequence? {
-            val src = source?.subSequence(start, end)?.toString().orEmpty()
-            val before = dest?.toString().orEmpty()
-            val next = buildString {
-                append(before.substring(0, dstart))
-                append(src)
-                append(before.substring(dend))
-            }
-            return if (regex.matches(next)) null else ""
-        }
-    }
 }
