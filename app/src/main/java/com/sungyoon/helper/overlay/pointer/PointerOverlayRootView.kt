@@ -135,8 +135,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private val views = HashMap<String, DraggablePointerView>() // start handle
     private val dragEndViews = HashMap<String, DraggablePointerView>() // end handle
     private val dragLinkViews = HashMap<String, View>() // start-end connector for drag action
+    private val randomRadiusViews = HashMap<String, View>() // tap random radius ring
     private val pointerViewToTarget = HashMap<DraggablePointerView, Pair<String, Endpoint>>()
     private val tmpLoc = IntArray(2)
+    private var randomTouchRadiusDp: Int = 0
 
     private var selectedId: String? = null
     private var selectedEndpoint: Endpoint = Endpoint.START
@@ -203,6 +205,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         setupSecondsIme(controls.intervalEdit)
         setupSecondsIme(controls.dragDurationEdit)
+        setupSecondsIme(controls.randomRadiusEdit)
         setupPointerSizeSeek()
         setupMoveStickHandleDrag()
 
@@ -228,6 +231,13 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 !isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.dragDurationEdit)
             ) {
                 controls.dragDurationEdit.clearFocus()
+                hideKeyboard()
+                requestIme(false)
+            }
+            if (controls.randomRadiusEdit.hasFocus() &&
+                !isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.randomRadiusEdit)
+            ) {
+                controls.randomRadiusEdit.clearFocus()
                 hideKeyboard()
                 requestIme(false)
             }
@@ -456,6 +466,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         try {
             val token = controls.intervalEdit.windowToken
                 ?: controls.dragDurationEdit.windowToken
+                ?: controls.randomRadiusEdit.windowToken
                 ?: windowToken
             if (token != null) {
                 imm.hideSoftInputFromWindow(token, 0)
@@ -507,6 +518,11 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 hideKeyboard()
                 requestIme(false)
             }
+            if (controls.randomRadiusEdit.hasFocus()) {
+                controls.randomRadiusEdit.clearFocus()
+                hideKeyboard()
+                requestIme(false)
+            }
 
             controls.controlPanel.animate().cancel()
             controls.controlPanel.animate()
@@ -531,6 +547,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         super.onSizeChanged(w, h, oldw, oldh)
         applyResponsiveLayout(w, h)
         dragLinkViews.keys.toList().forEach { updateDragLinkForPoint(it) }
+        randomRadiusViews.keys.toList().forEach { updateRandomRadiusForPoint(it) }
         updateMoveStickPosition()
     }
 
@@ -668,6 +685,36 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         return raw.toFloatOrNull()
     }
 
+    fun setRandomTouchRadiusDp(value: Int) {
+        val clamped = value.coerceIn(0, 120)
+        randomTouchRadiusDp = clamped
+        val text = clamped.toString()
+        if (controls.randomRadiusEdit.text?.toString() != text) {
+            controls.randomRadiusEdit.setText(text)
+            controls.randomRadiusEdit.setSelection(text.length)
+        }
+        refreshRandomRadiusViews()
+    }
+
+    fun setOnRandomTouchRadiusChanged(block: (Int) -> Unit) {
+        controls.randomRadiusEdit.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            override fun afterTextChanged(s: Editable?) {}
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                val raw = s?.toString().orEmpty()
+                if (raw.isBlank()) return
+                val value = raw.toIntOrNull() ?: return
+                block(value.coerceIn(0, 120))
+            }
+        })
+    }
+
+    fun getRandomTouchRadiusDpOrNull(): Int? {
+        val raw = controls.randomRadiusEdit.text?.toString().orEmpty()
+        if (raw.isBlank()) return null
+        return raw.toIntOrNull()
+    }
+
     fun syncPoints(
         points: List<HighlightingPoint>,
         labelProvider: (String, Endpoint) -> String,
@@ -691,6 +738,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             .filter { it.actionType == ACTION_TYPE_DRAG }
             .map { it.id }
             .toHashSet()
+        val tapIds = points.asSequence()
+            .filter { it.actionType != ACTION_TYPE_DRAG }
+            .map { it.id }
+            .toHashSet()
 
         val iter = views.entries.iterator()
         while (iter.hasNext()) {
@@ -699,6 +750,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 pointerLayer.removeView(view)
                 pointerViewToTarget.remove(view)
                 iter.remove()
+                removeRandomRadiusForPoint(id)
                 if (selectedId == id) {
                     clearSelection()
                 }
@@ -724,6 +776,15 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             if (!dragIds.contains(id)) {
                 pointerLayer.removeView(line)
                 lineIter.remove()
+            }
+        }
+
+        val radiusIter = randomRadiusViews.entries.iterator()
+        while (radiusIter.hasNext()) {
+            val (id, view) = radiusIter.next()
+            if (!tapIds.contains(id) || randomTouchRadiusDp <= 0) {
+                pointerLayer.removeView(view)
+                radiusIter.remove()
             }
         }
 
@@ -825,6 +886,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             }
 
             if (p.actionType == ACTION_TYPE_DRAG) {
+                removeRandomRadiusForPoint(p.id)
                 val endView = ensureHandleView(p.id, Endpoint.END)
                 endView.setDrawRadiusPx(pointerDrawRadiusPx)
                 endView.setLabel(labelProvider(p.id, Endpoint.END))
@@ -844,6 +906,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 if (selectedId == p.id && selectedEndpoint == Endpoint.END) {
                     selectedEndpoint = Endpoint.START
                 }
+                updateRandomRadiusForPoint(p.id)
             }
         }
 
@@ -907,6 +970,88 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         line.x = sx
         line.y = sy - halfThick
         line.rotation = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat()
+    }
+
+    private fun ensureRandomRadiusForPoint(pointId: String): View {
+        randomRadiusViews[pointId]?.let { return it }
+        val v = View(context).apply {
+            alpha = 1f
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(Color.parseColor("#145B5CE6"))
+                setStroke(dp(1), Color.parseColor("#555B5CE6"))
+            }
+        }
+        pointerLayer.addView(
+            v,
+            0,
+            FrameLayout.LayoutParams(dp(2), dp(2)).apply {
+                gravity = Gravity.TOP or Gravity.START
+            }
+        )
+        randomRadiusViews[pointId] = v
+        return v
+    }
+
+    private fun removeRandomRadiusForPoint(pointId: String) {
+        val v = randomRadiusViews.remove(pointId) ?: return
+        pointerLayer.removeView(v)
+    }
+
+    private fun refreshRandomRadiusViews() {
+        val tapIds = lastPoints.asSequence()
+            .filter { it.actionType != ACTION_TYPE_DRAG }
+            .map { it.id }
+            .toHashSet()
+
+        for (id in randomRadiusViews.keys.toList()) {
+            if (!tapIds.contains(id) || randomTouchRadiusDp <= 0) {
+                removeRandomRadiusForPoint(id)
+            }
+        }
+
+        if (randomTouchRadiusDp <= 0) return
+
+        for (point in lastPoints) {
+            if (point.actionType == ACTION_TYPE_DRAG) {
+                removeRandomRadiusForPoint(point.id)
+            } else {
+                updateRandomRadiusForPoint(point.id)
+            }
+        }
+    }
+
+    private fun updateRandomRadiusForPoint(pointId: String) {
+        if (randomTouchRadiusDp <= 0) {
+            removeRandomRadiusForPoint(pointId)
+            return
+        }
+
+        val point = lastPoints.firstOrNull { it.id == pointId } ?: run {
+            removeRandomRadiusForPoint(pointId)
+            return
+        }
+        if (point.actionType == ACTION_TYPE_DRAG) {
+            removeRandomRadiusForPoint(pointId)
+            return
+        }
+
+        val start = views[pointId] ?: run {
+            removeRandomRadiusForPoint(pointId)
+            return
+        }
+        val radiusPx = randomTouchRadiusDp * density
+        val diameter = max(2f, radiusPx * 2f).roundToInt()
+        val ring = ensureRandomRadiusForPoint(pointId)
+
+        val lp = (ring.layoutParams as FrameLayout.LayoutParams).apply {
+            width = diameter
+            height = diameter
+            gravity = Gravity.TOP or Gravity.START
+        }
+        ring.layoutParams = lp
+        ring.x = start.getCenterX() - (diameter / 2f)
+        ring.y = start.getCenterY() - (diameter / 2f)
     }
 
     private fun selectedPointerView(): DraggablePointerView? {
@@ -1066,6 +1211,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         pv.setCenter(clampedCx, clampedCy)
         updateDragLinkForPoint(id)
+        if (endpoint == Endpoint.START) {
+            updateRandomRadiusForPoint(id)
+        }
 
         updateMoveStickPosition()
 

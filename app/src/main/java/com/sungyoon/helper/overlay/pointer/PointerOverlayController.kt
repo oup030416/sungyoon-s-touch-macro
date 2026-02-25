@@ -19,6 +19,7 @@ import com.sungyoon.helper.core.permissions.openOverlaySettings
 import com.sungyoon.helper.data.DragDurationStore
 import com.sungyoon.helper.data.PointsStore
 import com.sungyoon.helper.data.PointerSizeStore
+import com.sungyoon.helper.data.RandomTouchRadiusStore
 import com.sungyoon.helper.data.ReservationPrefsStore
 import com.sungyoon.helper.data.ReservationRuntimeStore
 import com.sungyoon.helper.data.SequencePrefsStore
@@ -47,6 +48,7 @@ class PointerOverlayController(private val app: Context) {
     private var prefsJob: Job? = null
     private var tapIntervalPersistJob: Job? = null
     private var dragDurationPersistJob: Job? = null
+    private var randomRadiusPersistJob: Job? = null
 
     private var latestPoints: List<HighlightingPoint> = emptyList()
     private val draggingIds = HashSet<String>()
@@ -55,6 +57,7 @@ class PointerOverlayController(private val app: Context) {
     private var repeatEnabled: Boolean = true
     private var tapIntervalMs: Long = 1000L
     private var dragDurationMs: Long = 300L
+    private var randomTouchRadiusDp: Int = 0
     private var touchAnimEnabled: Boolean = true
 
     private var stateReceiver: BroadcastReceiver? = null
@@ -63,6 +66,8 @@ class PointerOverlayController(private val app: Context) {
     private var overlayLp: WindowManager.LayoutParams? = null
     private val minDragDurationMs = 100L
     private val maxDragDurationMs = 10_000L
+    private val minRandomRadiusDp = 0
+    private val maxRandomRadiusDp = 120
 
     fun isShowing(): Boolean = added
 
@@ -215,6 +220,16 @@ class PointerOverlayController(private val app: Context) {
                 }
             }
 
+            setOnRandomTouchRadiusChanged { radiusDp ->
+                val clamped = clampRandomRadiusDp(radiusDp)
+                randomTouchRadiusDp = clamped
+                randomRadiusPersistJob?.cancel()
+                randomRadiusPersistJob = scope.launch {
+                    delay(250L)
+                    RandomTouchRadiusStore.setRandomTouchRadiusDp(app, clamped)
+                }
+            }
+
             setOnPointerSizeChanged { level ->
                 scope.launch { PointerSizeStore.setPointerSizeLevel(app, level) }
             }
@@ -275,6 +290,8 @@ class PointerOverlayController(private val app: Context) {
             root?.setTapIntervalSeconds(tapIntervalMs / 1000f)
             dragDurationMs = clampDragDurationMs(DragDurationStore.dragDurationMsFlow(app).first())
             root?.setDragDurationSeconds(dragDurationMs / 1000f)
+            randomTouchRadiusDp = clampRandomRadiusDp(RandomTouchRadiusStore.randomTouchRadiusDpFlow(app).first())
+            root?.setRandomTouchRadiusDp(randomTouchRadiusDp)
 
             sequenceRunning = SequencePrefsStore.sequenceRunningFlow(app).first()
             repeatEnabled = SequencePrefsStore.repeatEnabledFlow(app).first()
@@ -329,6 +346,8 @@ class PointerOverlayController(private val app: Context) {
         tapIntervalPersistJob = null
         dragDurationPersistJob?.cancel()
         dragDurationPersistJob = null
+        randomRadiusPersistJob?.cancel()
+        randomRadiusPersistJob = null
         unregisterSequenceStateReceiver()
         if (!added) return
         root?.let {
@@ -457,6 +476,13 @@ class PointerOverlayController(private val app: Context) {
                     root?.setDragDurationSeconds(clamped / 1000f)
                 }
             }
+            launch {
+                RandomTouchRadiusStore.randomTouchRadiusDpFlow(app).collectLatest { radiusDp ->
+                    val clamped = clampRandomRadiusDp(radiusDp)
+                    randomTouchRadiusDp = clamped
+                    root?.setRandomTouchRadiusDp(clamped)
+                }
+            }
         }
     }
 
@@ -543,6 +569,10 @@ class PointerOverlayController(private val app: Context) {
 
     private fun clampDragDurationMs(ms: Long): Long {
         return ms.coerceIn(minDragDurationMs, maxDragDurationMs)
+    }
+
+    private fun clampRandomRadiusDp(dp: Int): Int {
+        return dp.coerceIn(minRandomRadiusDp, maxRandomRadiusDp)
     }
 
     private fun pointerHalfSizePx(): Float {

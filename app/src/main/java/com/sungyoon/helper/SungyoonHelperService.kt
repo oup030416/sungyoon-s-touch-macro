@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityEvent
 import androidx.core.content.ContextCompat
 import com.sungyoon.helper.data.DragDurationStore
 import com.sungyoon.helper.data.PointsStore
+import com.sungyoon.helper.data.RandomTouchRadiusStore
 import com.sungyoon.helper.data.ReservationPrefsStore
 import com.sungyoon.helper.data.ReservationRuntimeStore
 import com.sungyoon.helper.data.SequencePrefsStore
@@ -31,8 +32,13 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.cos
 import kotlin.math.max
+import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.random.Random
 
 class SungyoonHelperService : AccessibilityService() {
 
@@ -51,9 +57,12 @@ class SungyoonHelperService : AccessibilityService() {
     @Volatile private var cachedPointsSorted: List<HighlightingPoint> = emptyList()
     @Volatile private var cachedTapIntervalMs: Long = 1000L
     @Volatile private var cachedDragDurationMs: Long = 300L
+    @Volatile private var cachedRandomTouchRadiusDp: Int = 0
     @Volatile private var cachedRepeatEnabled: Boolean = true
     private val minDragDurationMs = 100L
     private val maxDragDurationMs = 10_000L
+    private val minRandomRadiusDp = 0
+    private val maxRandomRadiusDp = 120
 
     private var floatingToggle: FloatingToggleOverlayController? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -195,6 +204,11 @@ class SungyoonHelperService : AccessibilityService() {
                 }
             }
             launch {
+                RandomTouchRadiusStore.randomTouchRadiusDpFlow(this@SungyoonHelperService).collectLatest { radiusDp ->
+                    cachedRandomTouchRadiusDp = radiusDp.coerceIn(minRandomRadiusDp, maxRandomRadiusDp)
+                }
+            }
+            launch {
                 SequencePrefsStore.repeatEnabledFlow(this@SungyoonHelperService).collectLatest { repeatEnabled ->
                     cachedRepeatEnabled = repeatEnabled
                 }
@@ -325,9 +339,8 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
     private suspend fun executePointAction(point: HighlightingPoint, label: String) {
-        if (touchAnimationEnabled) overlay?.moveTo(point.x, point.y, label = label)
-
         if (isDragAction(point)) {
+            if (touchAnimationEnabled) overlay?.moveTo(point.x, point.y, label = label)
             dispatchDrag(
                 fromX = point.x,
                 fromY = point.y,
@@ -337,8 +350,25 @@ class SungyoonHelperService : AccessibilityService() {
             )
             if (touchAnimationEnabled) overlay?.moveTo(point.dragToX, point.dragToY, label = label)
         } else {
-            dispatchTap(point.x, point.y)
+            val (tapX, tapY) = resolveTapTarget(point)
+            if (touchAnimationEnabled) overlay?.moveTo(tapX, tapY, label = label)
+            dispatchTap(tapX, tapY)
         }
+    }
+
+    private fun resolveTapTarget(point: HighlightingPoint): Pair<Float, Float> {
+        val radiusDp = cachedRandomTouchRadiusDp.coerceIn(minRandomRadiusDp, maxRandomRadiusDp)
+        if (radiusDp <= 0) return point.x to point.y
+
+        val dm = resources.displayMetrics
+        val radiusPx = radiusDp * dm.density
+        val theta = Random.nextDouble(0.0, PI * 2.0)
+        val r = sqrt(Random.nextDouble(0.0, 1.0)) * radiusPx
+        val targetX = (point.x + (r * cos(theta)).toFloat())
+            .coerceIn(0f, (dm.widthPixels - 1).coerceAtLeast(0).toFloat())
+        val targetY = (point.y + (r * sin(theta)).toFloat())
+            .coerceIn(0f, (dm.heightPixels - 1).coerceAtLeast(0).toFloat())
+        return targetX to targetY
     }
 
     private suspend fun waitUntilRunPhaseEnd(endAtMs: Long) {
