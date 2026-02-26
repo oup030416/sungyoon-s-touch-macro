@@ -17,13 +17,13 @@ object RandomTouchRadiusStore {
 
     fun randomTouchRadiusDpFlow(context: Context): Flow<Int> {
         return context.randomTouchRadiusStore.data
-            .map { prefs -> (prefs[KEY_RANDOM_TOUCH_RADIUS_DP] ?: DEFAULT_RANDOM_TOUCH_RADIUS_DP).coerceIn(0, 120) }
+            .map { prefs -> (prefs[KEY_RANDOM_TOUCH_RADIUS_DP] ?: DEFAULT_RANDOM_TOUCH_RADIUS_DP).coerceIn(0, 20) }
             .flowOn(Dispatchers.IO)
     }
 
     suspend fun setRandomTouchRadiusDp(context: Context, dp: Int) {
         context.randomTouchRadiusStore.edit { prefs ->
-            prefs[KEY_RANDOM_TOUCH_RADIUS_DP] = dp.coerceIn(0, 120)
+            prefs[KEY_RANDOM_TOUCH_RADIUS_DP] = dp.coerceIn(0, 20)
         }
     }
 }

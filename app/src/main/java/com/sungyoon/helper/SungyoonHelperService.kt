@@ -67,7 +67,7 @@ class SungyoonHelperService : AccessibilityService() {
     private val minDragDurationMs = 100L
     private val maxDragDurationMs = 10_000L
     private val minRandomRadiusDp = 0
-    private val maxRandomRadiusDp = 120
+    private val maxRandomRadiusDp = 20
     private val touchAnimRadiusExtraDp = 5
 
     private var floatingToggle: FloatingToggleOverlayController? = null

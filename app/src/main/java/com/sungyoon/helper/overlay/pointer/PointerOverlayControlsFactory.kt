@@ -280,7 +280,7 @@ object PointerOverlayControlsFactory {
         randomRadiusTop.addView(randomRadiusValueText)
 
         val randomRadiusSeek = SeekBar(context).apply {
-            max = 120
+            max = 20
             progress = 0
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,

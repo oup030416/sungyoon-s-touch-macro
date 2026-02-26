@@ -713,7 +713,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         return raw.toFloatOrNull()
     }
 
-    private fun tapPointerRadiusDp(): Int = if (randomTouchRadiusDp <= 0) 1 else 0
+    private fun tapPointerRadiusDp(): Int = if (randomTouchRadiusDp <= 0) 10 else 0
 
     private fun tapPointerDrawRadiusPx(): Float = tapPointerRadiusDp() * density
 
@@ -728,7 +728,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     }
 
     fun setRandomTouchRadiusDp(value: Int) {
-        val clamped = value.coerceIn(0, 120)
+        val clamped = value.coerceIn(0, 20)
         randomTouchRadiusDp = clamped
         controls.randomRadiusValueText.text =
             context.getString(R.string.pointer_random_radius_value, clamped)

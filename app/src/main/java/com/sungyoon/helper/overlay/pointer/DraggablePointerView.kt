@@ -67,7 +67,7 @@ class DraggablePointerView(
     private fun applyRadiusStyle() {
         val r = drawRadiusPx.coerceAtLeast(0f)
         ringPaint.strokeWidth = (r * 0.18f).coerceAtLeast(6f)
-        textPaint.textSize = (r * 1.05f).coerceAtLeast(12f)
+        textPaint.textSize = 30f
     }
 
     override fun onDraw(canvas: Canvas) {
