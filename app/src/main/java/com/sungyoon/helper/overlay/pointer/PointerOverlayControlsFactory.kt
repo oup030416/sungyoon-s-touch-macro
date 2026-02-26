@@ -44,8 +44,6 @@ data class PointerOverlayControlsViews(
 
 object PointerOverlayControlsFactory {
 
-    // level 1..10 -> radius dp
-    private val SIZE_LEVEL_TO_RADIUS_DP = intArrayOf(8, 10, 12, 14, 15, 16, 17, 18, 19, 20)
     private val PLAY_STANDBY_FILL_COLOR = Color.parseColor("#664CAF50")
 
     fun create(
@@ -147,55 +145,6 @@ object PointerOverlayControlsFactory {
         }
 
         // ---- [포인터 크기] 슬라이더 ----
-        val pointerSizeRow = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(10) }
-        }
-
-        val pointerSizeTop = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            )
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        val pointerSizeLabel = TextView(context).apply {
-            text = "포인터 크기"
-            setTextColor(Color.parseColor("#E6FFFFFF"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-        }
-
-        val pointerSizeValueText = TextView(context).apply {
-            val level = 8
-            val r = SIZE_LEVEL_TO_RADIUS_DP[level - 1]
-            text = "${level} (${r})"
-            setTextColor(Color.parseColor("#E6FFFFFF"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        }
-
-        pointerSizeTop.addView(pointerSizeLabel)
-        pointerSizeTop.addView(pointerSizeValueText)
-
-        val pointerSizeSeek = SeekBar(context).apply {
-            max = 9         // progress 0..9 -> level 1..10
-            progress = 7    // default level 8
-            layoutParams = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { topMargin = dp(2) }
-        }
-
-        pointerSizeRow.addView(pointerSizeTop)
-        pointerSizeRow.addView(pointerSizeSeek)
-
         // ---- 터치 간격 ----
         val intervalRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -341,6 +290,17 @@ object PointerOverlayControlsFactory {
 
         randomRadiusRow.addView(randomRadiusTop)
         randomRadiusRow.addView(randomRadiusSeek)
+
+        // Hidden placeholders kept for backward-compatible internal wiring.
+        val pointerSizeSeek = SeekBar(context).apply {
+            max = 9
+            progress = 7
+            visibility = android.view.View.GONE
+        }
+        val pointerSizeValueText = TextView(context).apply {
+            text = "8"
+            visibility = android.view.View.GONE
+        }
 
         // ---- 버튼들 ----
         val actionsCol = LinearLayout(context).apply {
@@ -523,7 +483,6 @@ object PointerOverlayControlsFactory {
 
         controlPanel.addView(headerRow)
         controlPanel.addView(hintText)
-        controlPanel.addView(pointerSizeRow)
         controlPanel.addView(randomRadiusRow)
         controlPanel.addView(intervalRow)
         controlPanel.addView(dragDurationRow)

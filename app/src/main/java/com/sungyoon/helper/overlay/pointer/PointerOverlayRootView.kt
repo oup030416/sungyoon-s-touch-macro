@@ -39,9 +39,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     // 터치 UX: 실제 터치 가능한 영역은 크게 (최소 56dp 고정)
     private val pointerTouchSizePx = dp(56)
 
-    private var pointerSizeLevel: Int = PointerSizeSpec.DEFAULT_LEVEL
-    private var pointerDrawRadiusPx: Float =
+    private val dragHandleDrawRadiusPx: Float =
         dp(PointerSizeSpec.radiusDpForLevel(PointerSizeSpec.DEFAULT_LEVEL)).toFloat()
+    private var pointerSizeLevel: Int = PointerSizeSpec.DEFAULT_LEVEL
+    private var pointerDrawRadiusPx: Float = dragHandleDrawRadiusPx
 
     private var panelVisible: Boolean = true
     private val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -216,7 +217,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         setupSecondsIme(controls.intervalEdit)
         setupSecondsIme(controls.dragDurationEdit)
-        setupPointerSizeSeek()
         setupRandomRadiusSeek()
         setupMoveStickHandleDrag()
 
@@ -268,12 +268,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     fun setReservationValuesFromStore(runMin: Int, restMin: Int, repeatCount: Int) {
         // 이제 runMin/restMin은 "초" 값이 들어옵니다.
         reservationPanel.setValuesFromStore(runMin, restMin, repeatCount)
-    }
-
-
-
-    fun setOnPointerSizeChanged(block: (Int) -> Unit) {
-        onPointerSizeChanged = block
     }
 
     fun setOnDeletePointClick(block: (String) -> Unit) {
@@ -378,7 +372,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val next = level.coerceIn(PointerSizeSpec.MIN_LEVEL, PointerSizeSpec.MAX_LEVEL)
         pointerSizeLevel = next
         pointerDrawRadiusPx = dp(PointerSizeSpec.radiusDpForLevel(next)).toFloat()
-        controls.pointerSizeValueText.text = "${next}"
+        // Removed pointer size text binding.
 
         suppressPointerSizeListener = true
         try {
@@ -472,6 +466,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 randomTouchRadiusDp = clamped
                 controls.randomRadiusValueText.text =
                     context.getString(R.string.pointer_random_radius_value, clamped)
+                updateAllTapPointerRadii()
                 refreshRandomRadiusViews()
                 if (fromUser) {
                     onRandomTouchRadiusChanged?.invoke(clamped)
@@ -718,6 +713,20 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         return raw.toFloatOrNull()
     }
 
+    private fun tapPointerRadiusDp(): Int = if (randomTouchRadiusDp <= 0) 1 else 0
+
+    private fun tapPointerDrawRadiusPx(): Float = tapPointerRadiusDp() * density
+
+    private fun updateAllTapPointerRadii() {
+        val tapRadiusPx = tapPointerDrawRadiusPx()
+        for (point in lastPoints) {
+            if (point.actionType != ACTION_TYPE_DRAG) {
+                views[point.id]?.setDrawRadiusPx(tapRadiusPx)
+            }
+        }
+        updateMoveStickPosition()
+    }
+
     fun setRandomTouchRadiusDp(value: Int) {
         val clamped = value.coerceIn(0, 120)
         randomTouchRadiusDp = clamped
@@ -729,6 +738,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         } finally {
             suppressRandomRadiusListener = false
         }
+        updateAllTapPointerRadii()
         refreshRandomRadiusViews()
     }
 
@@ -821,7 +831,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             val handle = DraggablePointerView(
                 context = context,
                 sizePx = pointerTouchSizePx,
-                drawRadiusPx = pointerDrawRadiusPx
+                drawRadiusPx = dragHandleDrawRadiusPx
             ).apply {
                 isClickable = true
                 isFocusable = false
@@ -902,7 +912,12 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         for (p in points) {
             val startView = ensureHandleView(p.id, Endpoint.START)
-            startView.setDrawRadiusPx(pointerDrawRadiusPx)
+            val startRadius = if (p.actionType == ACTION_TYPE_DRAG) {
+                dragHandleDrawRadiusPx
+            } else {
+                tapPointerDrawRadiusPx()
+            }
+            startView.setDrawRadiusPx(startRadius)
             startView.setLabel(labelProvider(p.id, Endpoint.START))
             val draggingStart = draggingIds.contains("${p.id}:start")
             if (!draggingStart && !(handleDragging && selectedId == p.id && selectedEndpoint == Endpoint.START)) {
@@ -913,7 +928,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             if (p.actionType == ACTION_TYPE_DRAG) {
                 removeRandomRadiusForPoint(p.id)
                 val endView = ensureHandleView(p.id, Endpoint.END)
-                endView.setDrawRadiusPx(pointerDrawRadiusPx)
+                endView.setDrawRadiusPx(dragHandleDrawRadiusPx)
                 endView.setLabel(labelProvider(p.id, Endpoint.END))
                 val draggingEnd = draggingIds.contains("${p.id}:end")
                 if (!draggingEnd && !(handleDragging && selectedId == p.id && selectedEndpoint == Endpoint.END)) {
@@ -987,8 +1002,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             return
         }
 
-        val desiredStartInset = pointerDrawRadiusPx + dragLinkInsetMarginPx
-        val desiredEndInset = pointerDrawRadiusPx + dragLinkInsetMarginPx
+        val desiredStartInset = dragHandleDrawRadiusPx + dragLinkInsetMarginPx
+        val desiredEndInset = dragHandleDrawRadiusPx + dragLinkInsetMarginPx
         val maxInsetSum = (len - dragLinkMinVisibleLenPx).coerceAtLeast(0f)
         val desiredInsetSum = desiredStartInset + desiredEndInset
         val insetScale = if (desiredInsetSum <= 0f || desiredInsetSum <= maxInsetSum) {

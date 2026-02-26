@@ -19,7 +19,6 @@ import com.sungyoon.helper.core.permissions.openAccessibilitySettings
 import com.sungyoon.helper.core.permissions.openOverlaySettings
 import com.sungyoon.helper.data.DragDurationStore
 import com.sungyoon.helper.data.PointsStore
-import com.sungyoon.helper.data.PointerSizeStore
 import com.sungyoon.helper.data.RandomTouchRadiusStore
 import com.sungyoon.helper.data.ReservationPrefsStore
 import com.sungyoon.helper.data.ReservationRuntimeStore
@@ -233,10 +232,6 @@ class PointerOverlayController(private val app: Context) {
                 }
             }
 
-            setOnPointerSizeChanged { level ->
-                scope.launch { PointerSizeStore.setPointerSizeLevel(app, level) }
-            }
-
             setOnRequestIme { enable ->
                 setOverlayFocusableForIme(enable)
             }
@@ -321,8 +316,6 @@ class PointerOverlayController(private val app: Context) {
             root?.setRepeatEnabled(repeatEnabled)
             root?.setTouchAnimationEnabled(touchAnimEnabled)
 
-            val sizeLevel = PointerSizeStore.pointerSizeLevelFlow(app).first()
-            root?.setPointerSizeLevel(sizeLevel)
 
             // ✅ 여기서 pref를 읽고
             val panelVisiblePref = SequencePrefsStore.pointerPanelVisibleFlow(app).first()
@@ -491,11 +484,6 @@ class PointerOverlayController(private val app: Context) {
                 SequencePrefsStore.touchAnimationEnabledFlow(app).collectLatest { enabled ->
                     touchAnimEnabled = enabled
                     root?.setTouchAnimationEnabled(enabled)
-                }
-            }
-            launch {
-                PointerSizeStore.pointerSizeLevelFlow(app).collectLatest { level ->
-                    root?.setPointerSizeLevel(level)
                 }
             }
             launch {

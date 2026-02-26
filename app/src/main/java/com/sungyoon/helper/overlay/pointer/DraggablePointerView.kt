@@ -57,7 +57,7 @@ class DraggablePointerView(
 
     /** ✅ 부드럽게 크기 반영: 재생성 없이 반지름만 변경 */
     fun setDrawRadiusPx(radiusPx: Float) {
-        val next = radiusPx.coerceAtLeast(1f)
+        val next = radiusPx.coerceAtLeast(0f)
         if (kotlin.math.abs(drawRadiusPx - next) < 0.5f) return
         drawRadiusPx = next
         applyRadiusStyle()
@@ -65,7 +65,7 @@ class DraggablePointerView(
     }
 
     private fun applyRadiusStyle() {
-        val r = drawRadiusPx.coerceAtLeast(1f)
+        val r = drawRadiusPx.coerceAtLeast(0f)
         ringPaint.strokeWidth = (r * 0.18f).coerceAtLeast(6f)
         textPaint.textSize = (r * 1.05f).coerceAtLeast(12f)
     }
@@ -78,6 +78,7 @@ class DraggablePointerView(
 
         val maxR = (min(width, height) / 2f) * 0.90f
         val r = drawRadiusPx.coerceAtMost(maxR)
+        if (r <= 0f) return
 
         canvas.drawCircle(cx, cy, r, fillPaint)
         canvas.drawCircle(cx, cy, r, ringPaint)
