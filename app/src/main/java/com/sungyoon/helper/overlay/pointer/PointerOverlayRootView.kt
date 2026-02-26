@@ -561,9 +561,27 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         applyResponsiveLayout(w, h)
+        if (w > 0 && h > 0 && (w != oldw || h != oldh)) {
+            resyncCachedPointsForCurrentLayout()
+        }
         dragLinkViews.keys.toList().forEach { updateDragLinkForPoint(it) }
         randomRadiusViews.keys.toList().forEach { updateRandomRadiusForPoint(it) }
         updateMoveStickPosition()
+    }
+
+    private fun resyncCachedPointsForCurrentLayout() {
+        val labelProvider = lastLabelProvider ?: return
+        val onDragStart = onDragStartInternal ?: return
+        val onDragMove = onDragMoveInternal ?: return
+        val onDragEnd = onDragEndInternal ?: return
+        syncPoints(
+            points = lastPoints,
+            labelProvider = labelProvider,
+            draggingIds = lastDraggingIds,
+            onDragStart = onDragStart,
+            onDragMove = onDragMove,
+            onDragEnd = onDragEnd
+        )
     }
 
     fun setOnRepeatToggleClick(block: () -> Unit) {

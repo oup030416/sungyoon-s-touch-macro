@@ -68,6 +68,7 @@ class SungyoonHelperService : AccessibilityService() {
     private val maxDragDurationMs = 10_000L
     private val minRandomRadiusDp = 0
     private val maxRandomRadiusDp = 120
+    private val touchAnimRadiusExtraDp = 5
 
     private var floatingToggle: FloatingToggleOverlayController? = null
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
@@ -363,7 +364,7 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
     private fun syncOverlayPointerRadius() {
-        val radiusDp = PointerSizeSpec.radiusDpForLevel(cachedPointerSizeLevel)
+        val radiusDp = PointerSizeSpec.radiusDpForLevel(cachedPointerSizeLevel) + touchAnimRadiusExtraDp
         overlay?.setPointerRadiusDp(radiusDp)
     }
 

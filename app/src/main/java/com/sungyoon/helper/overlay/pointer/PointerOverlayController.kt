@@ -10,6 +10,7 @@ import android.view.Gravity
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
+import androidx.core.view.doOnLayout
 import com.sungyoon.helper.R
 import com.sungyoon.helper.SungyoonHelperService
 import com.sungyoon.helper.core.permissions.isOverlayGranted
@@ -49,14 +50,16 @@ class PointerOverlayController(private val app: Context) {
     private var tapIntervalPersistJob: Job? = null
     private var dragDurationPersistJob: Job? = null
     private var randomRadiusPersistJob: Job? = null
+    private var collectStartFallbackJob: Job? = null
 
     private var latestPoints: List<HighlightingPoint> = emptyList()
     private val draggingIds = HashSet<String>()
+    private var collectStarted: Boolean = false
 
     private var sequenceRunning: Boolean = false
     private var repeatEnabled: Boolean = true
     private var tapIntervalMs: Long = 1000L
-    private var dragDurationMs: Long = 300L
+    private var dragDurationMs: Long = 1000L
     private var randomTouchRadiusDp: Int = 0
     private var touchAnimEnabled: Boolean = true
 
@@ -274,15 +277,32 @@ class PointerOverlayController(private val app: Context) {
         }
 
         registerSequenceStateReceiver()
-        startCollect()
         startPrefsCollect()
+        collectStarted = false
 
-        root?.post {
-            val rv = root ?: return@post
+        val rootView = root ?: return
+        rootView.doOnLayout {
             scope.launch {
-                val (dx, dy) = rv.getPointerLayerOffsetOnScreen()
-                PointsStore.migrateToScreenCoordsIfNeeded(app, dx.toFloat(), dy.toFloat())
+                try {
+                    val currentRoot = root ?: return@launch
+                    val (dx, dy) = currentRoot.getPointerLayerOffsetOnScreen()
+                    PointsStore.migrateToScreenCoordsIfNeeded(app, dx.toFloat(), dy.toFloat())
+                } finally {
+                    startCollectIfNeeded()
+                }
             }
+        }
+        collectStartFallbackJob?.cancel()
+        collectStartFallbackJob = scope.launch {
+            delay(500L)
+            val currentRoot = root
+            if (currentRoot != null) {
+                runCatching {
+                    val (dx, dy) = currentRoot.getPointerLayerOffsetOnScreen()
+                    PointsStore.migrateToScreenCoordsIfNeeded(app, dx.toFloat(), dy.toFloat())
+                }
+            }
+            startCollectIfNeeded()
         }
 
         scope.launch {
@@ -346,6 +366,9 @@ class PointerOverlayController(private val app: Context) {
 
         collectJob?.cancel()
         collectJob = null
+        collectStarted = false
+        collectStartFallbackJob?.cancel()
+        collectStartFallbackJob = null
         prefsJob?.cancel()
         prefsJob = null
         tapIntervalPersistJob?.cancel()
@@ -490,6 +513,14 @@ class PointerOverlayController(private val app: Context) {
                 }
             }
         }
+    }
+
+    private fun startCollectIfNeeded() {
+        if (collectStarted) return
+        if (!added) return
+        if (root == null) return
+        collectStarted = true
+        startCollect()
     }
 
     private suspend fun ensurePointsLoaded() {

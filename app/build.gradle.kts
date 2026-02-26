@@ -6,8 +6,8 @@ plugins {
 }
 
 val appVersionName = "1.06"
-val devVersionName = "1.13"
-val devVersionCode = 9
+val devVersionName = "1.14"
+val devVersionCode = 10
 
 android {
     namespace = "com.sungyoon.helper"

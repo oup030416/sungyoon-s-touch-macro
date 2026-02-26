@@ -271,7 +271,7 @@ object PointerOverlayControlsFactory {
         }
 
         val dragDurationEdit = EditText(context).apply {
-            setText("0.3")
+            setText("1.0")
             setSelection(text?.length ?: 0)
             setTextColor(Color.WHITE)
             setHintTextColor(Color.parseColor("#80FFFFFF"))

@@ -13,7 +13,7 @@ private val Context.dragDurationStore by preferencesDataStore(name = "sungyoon_h
 
 object DragDurationStore {
     private val KEY_DRAG_DURATION_MS = longPreferencesKey("drag_duration_ms")
-    private const val DEFAULT_DRAG_DURATION_MS = 300L
+    private const val DEFAULT_DRAG_DURATION_MS = 1000L
 
     fun dragDurationMsFlow(context: Context): Flow<Long> {
         return context.dragDurationStore.data
