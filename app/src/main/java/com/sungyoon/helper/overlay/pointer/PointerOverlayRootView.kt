@@ -115,6 +115,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private val dragArrowHalfWidthPx = dp(6).toFloat()
     private val dragLinkInsetMarginPx = dp(2).toFloat()
     private val dragLinkMinVisibleLenPx = dp(10).toFloat()
+    private val randomRadiusVisualExtraDp = 5
 
     private val moveStickHandle: ImageButton = ImageButton(context).apply {
         setImageResource(R.drawable.ic_move_24)
@@ -150,7 +151,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private val randomRadiusViews = HashMap<String, View>() // tap random radius ring
     private val pointerViewToTarget = HashMap<DraggablePointerView, Pair<String, Endpoint>>()
     private val tmpLoc = IntArray(2)
-    private var randomTouchRadiusDp: Int = 0
+    private var randomTouchRadiusDp: Int = 5
 
     private var selectedId: String? = null
     private var selectedEndpoint: Endpoint = Endpoint.START
@@ -462,7 +463,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.randomRadiusSeek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: android.widget.SeekBar?, progress: Int, fromUser: Boolean) {
                 if (suppressRandomRadiusListener) return
-                val clamped = progress.coerceIn(0, 120)
+                val clamped = progress.coerceIn(0, 20)
                 randomTouchRadiusDp = clamped
                 controls.randomRadiusValueText.text =
                     context.getString(R.string.pointer_random_radius_value, clamped)
@@ -1098,7 +1099,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             removeRandomRadiusForPoint(pointId)
             return
         }
-        val radiusPx = randomTouchRadiusDp * density
+        val radiusPx = (randomTouchRadiusDp + randomRadiusVisualExtraDp) * density
         val diameter = max(2f, radiusPx * 2f).roundToInt()
         val ring = ensureRandomRadiusForPoint(pointId)
 

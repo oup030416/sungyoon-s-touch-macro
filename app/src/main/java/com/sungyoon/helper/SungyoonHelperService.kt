@@ -61,7 +61,7 @@ class SungyoonHelperService : AccessibilityService() {
     @Volatile private var cachedPointsSorted: List<HighlightingPoint> = emptyList()
     @Volatile private var cachedTapIntervalMs: Long = 1000L
     @Volatile private var cachedDragDurationMs: Long = 300L
-    @Volatile private var cachedRandomTouchRadiusDp: Int = 0
+    @Volatile private var cachedRandomTouchRadiusDp: Int = 5
     @Volatile private var cachedPointerSizeLevel: Int = PointerSizeSpec.DEFAULT_LEVEL
     @Volatile private var cachedRepeatEnabled: Boolean = true
     private val minDragDurationMs = 100L

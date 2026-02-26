@@ -13,7 +13,7 @@ private val Context.randomTouchRadiusStore by preferencesDataStore(name = "sungy
 
 object RandomTouchRadiusStore {
     private val KEY_RANDOM_TOUCH_RADIUS_DP = intPreferencesKey("random_touch_radius_dp")
-    private const val DEFAULT_RANDOM_TOUCH_RADIUS_DP = 0
+    private const val DEFAULT_RANDOM_TOUCH_RADIUS_DP = 5
 
     fun randomTouchRadiusDpFlow(context: Context): Flow<Int> {
         return context.randomTouchRadiusStore.data

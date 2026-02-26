@@ -59,7 +59,7 @@ class PointerOverlayController(private val app: Context) {
     private var repeatEnabled: Boolean = true
     private var tapIntervalMs: Long = 1000L
     private var dragDurationMs: Long = 1000L
-    private var randomTouchRadiusDp: Int = 0
+    private var randomTouchRadiusDp: Int = 5
     private var touchAnimEnabled: Boolean = true
 
     private var stateReceiver: BroadcastReceiver? = null
@@ -69,7 +69,7 @@ class PointerOverlayController(private val app: Context) {
     private val minDragDurationMs = 100L
     private val maxDragDurationMs = 10_000L
     private val minRandomRadiusDp = 0
-    private val maxRandomRadiusDp = 120
+    private val maxRandomRadiusDp = 20
 
     fun isShowing(): Boolean = added
 

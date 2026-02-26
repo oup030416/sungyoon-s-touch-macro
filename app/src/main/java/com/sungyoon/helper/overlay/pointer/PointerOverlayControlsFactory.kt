@@ -270,7 +270,7 @@ object PointerOverlayControlsFactory {
         }
 
         val randomRadiusValueText = TextView(context).apply {
-            text = context.getString(R.string.pointer_random_radius_value, 0)
+            text = context.getString(R.string.pointer_random_radius_value, 5)
             setTextColor(Color.parseColor("#E6FFFFFF"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -281,7 +281,7 @@ object PointerOverlayControlsFactory {
 
         val randomRadiusSeek = SeekBar(context).apply {
             max = 20
-            progress = 0
+            progress = 5
             layoutParams = LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.WRAP_CONTENT
