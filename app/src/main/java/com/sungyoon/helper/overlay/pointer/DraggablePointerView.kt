@@ -78,10 +78,11 @@ class DraggablePointerView(
 
         val maxR = (min(width, height) / 2f) * 0.90f
         val r = drawRadiusPx.coerceAtMost(maxR)
-        if (r <= 0f) return
 
-        canvas.drawCircle(cx, cy, r, fillPaint)
-        canvas.drawCircle(cx, cy, r, ringPaint)
+        if (r > 0f) {
+            canvas.drawCircle(cx, cy, r, fillPaint)
+            canvas.drawCircle(cx, cy, r, ringPaint)
+        }
 
         val fm = textPaint.fontMetrics
         val textY = cy - (fm.ascent + fm.descent) / 2f
