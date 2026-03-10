@@ -5,9 +5,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-val appVersionName = "1.06"
-val devVersionName = "1.15"
-val devVersionCode = 11
+val appVersionName = "1.07"
+val devVersionName = "1.16"
+val devVersionCode = 12
 
 android {
     namespace = "com.sungyoon.helper"
