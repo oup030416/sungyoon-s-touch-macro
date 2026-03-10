@@ -52,6 +52,7 @@ class SungyoonHelperService : AccessibilityService() {
     @Volatile private var cachedPhaseEndAtMs: Long = 0L
     @Volatile private var cachedPhase: Int = ReservationRuntimeStore.PHASE_RUN
     @Volatile private var cachedPausedRemainingMs: Long = 0L
+    @Volatile private var cachedNextPointOffset: Int = 0
     @Volatile private var cachedReservationActive: Boolean = false
     @Volatile private var cachedReservationPaused: Boolean = false
     @Volatile private var cachedRunSec: Int = 60
@@ -242,6 +243,7 @@ class SungyoonHelperService : AccessibilityService() {
         cachedPhase = snapshot.phase
         cachedPhaseEndAtMs = snapshot.phaseEndAtMs
         cachedPausedRemainingMs = snapshot.pausedRemainingMs
+        cachedNextPointOffset = snapshot.nextPointOffset.coerceAtLeast(0)
         cachedRunSec = snapshot.runSec.coerceIn(1, 3600)
         cachedRestSec = snapshot.restSec.coerceIn(1, 3600)
         cachedCycleCurrent = snapshot.cycleCurrent.coerceAtLeast(1)
@@ -458,6 +460,7 @@ class SungyoonHelperService : AccessibilityService() {
         cachedPhaseEndAtMs = 0L
         cachedPhase = ReservationRuntimeStore.PHASE_RUN
         cachedPausedRemainingMs = 0L
+        cachedNextPointOffset = 0
         cachedCycleCurrent = 1
         cachedCycleTotal = 1
 
@@ -555,6 +558,7 @@ class SungyoonHelperService : AccessibilityService() {
             cachedPhase = ReservationRuntimeStore.PHASE_RUN
             cachedPhaseEndAtMs = now + (rs * 1000L)
             cachedPausedRemainingMs = 0L
+            cachedNextPointOffset = 0
             cachedRunSec = rs
             cachedRestSec = ss
             cachedCycleCurrent = 1
@@ -655,9 +659,13 @@ class SungyoonHelperService : AccessibilityService() {
                 return
             }
 
+            val startOffset = normalizePointOffset(cachedNextPointOffset, points.size)
+            if (startOffset != cachedNextPointOffset) {
+                persistNextPointOffset(startOffset)
+            }
             val intervalMs = cachedTapIntervalMs.coerceAtLeast(100L)
 
-            for ((i, p) in points.withIndex()) {
+            for (stepIndex in points.indices) {
                 val n = System.currentTimeMillis()
                 if (n >= endAtMs) break
 
@@ -665,6 +673,8 @@ class SungyoonHelperService : AccessibilityService() {
                 val p2 = cachedReservationPaused
                 if (!a2 || p2) return
 
+                val pointOffset = (startOffset + stepIndex) % points.size
+                val p = points[pointOffset]
                 if (isDragAction(p)) {
                     val required = dragDurationMs(p)
                     if (n + required > endAtMs) {
@@ -673,7 +683,8 @@ class SungyoonHelperService : AccessibilityService() {
                     }
                 }
 
-                executePointAction(p, label = "${i + 1}")
+                executePointAction(p, label = "${pointOffset + 1}")
+                persistNextPointOffset((pointOffset + 1) % points.size)
 
                 // 기존과 동일한 interval 대기 로직
                 var waited = 0L
@@ -869,6 +880,7 @@ class SungyoonHelperService : AccessibilityService() {
         reservationJob?.cancel()
         reservationJob = null
         overlay?.hide()
+        cachedNextPointOffset = 0
 
         serviceScope.launch {
             val active = cachedReservationActive
@@ -883,6 +895,18 @@ class SungyoonHelperService : AccessibilityService() {
             SequencePrefsStore.setSequenceRunning(this@SungyoonHelperService, false)
             sendSequenceFinished()
         }
+    }
+
+    private suspend fun persistNextPointOffset(offset: Int) {
+        val normalized = offset.coerceAtLeast(0)
+        if (cachedNextPointOffset == normalized) return
+        cachedNextPointOffset = normalized
+        ReservationRuntimeStore.setNextPointOffset(this@SungyoonHelperService, normalized)
+    }
+
+    private fun normalizePointOffset(offset: Int, pointCount: Int): Int {
+        if (pointCount <= 0) return 0
+        return offset.mod(pointCount)
     }
 
     private fun ceilSeconds(ms: Long): Long {

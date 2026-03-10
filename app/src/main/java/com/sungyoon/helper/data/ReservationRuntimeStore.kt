@@ -18,6 +18,7 @@ object ReservationRuntimeStore {
         val phase: Int,
         val phaseEndAtMs: Long,
         val pausedRemainingMs: Long,
+        val nextPointOffset: Int,
         val cycleCurrent: Int,
         val cycleTotal: Int,
         val runSec: Int,
@@ -44,6 +45,7 @@ object ReservationRuntimeStore {
 
     private val KEY_CYCLE_CURRENT = intPreferencesKey("cycle_current") // 1-based
     private val KEY_CYCLE_TOTAL = intPreferencesKey("cycle_total")
+    private val KEY_NEXT_POINT_OFFSET = intPreferencesKey("next_point_offset")
 
     // config snapshot (복원용)
     private val KEY_RUN_MIN = intPreferencesKey("run_min")
@@ -71,6 +73,10 @@ object ReservationRuntimeStore {
 
     fun cycleTotalFlow(context: Context): Flow<Int> =
         context.reservationRuntimeStore.data.map { it[KEY_CYCLE_TOTAL] ?: 1 }.flowOn(Dispatchers.IO)
+
+    fun nextPointOffsetFlow(context: Context): Flow<Int> =
+        context.reservationRuntimeStore.data.map { (it[KEY_NEXT_POINT_OFFSET] ?: 0).coerceAtLeast(0) }
+            .flowOn(Dispatchers.IO)
 
     fun runMinFlow(context: Context): Flow<Int> =
         context.reservationRuntimeStore.data.map { it[KEY_RUN_MIN] ?: 1 }.flowOn(Dispatchers.IO)
@@ -117,6 +123,7 @@ object ReservationRuntimeStore {
                 phase = prefs[KEY_PHASE] ?: PHASE_RUN,
                 phaseEndAtMs = prefs[KEY_PHASE_END_AT_MS] ?: 0L,
                 pausedRemainingMs = prefs[KEY_PAUSED_REMAINING_MS] ?: 0L,
+                nextPointOffset = (prefs[KEY_NEXT_POINT_OFFSET] ?: 0).coerceAtLeast(0),
                 cycleCurrent = (prefs[KEY_CYCLE_CURRENT] ?: 1).coerceAtLeast(1),
                 cycleTotal = (prefs[KEY_CYCLE_TOTAL] ?: 1).coerceIn(1, 9999),
                 runSec = runSec,
@@ -145,6 +152,7 @@ object ReservationRuntimeStore {
             prefs[KEY_REST_MIN] = ss
             prefs[KEY_CYCLE_CURRENT] = 1
             prefs[KEY_CYCLE_TOTAL] = rc
+            prefs[KEY_NEXT_POINT_OFFSET] = 0
             prefs[KEY_PAUSED_REMAINING_MS] = 0L
             prefs[KEY_PHASE_END_AT_MS] = nowMs + (rs * 1000L)
             prefs[KEY_STATUS_TEXT] = initialStatus
@@ -168,6 +176,10 @@ object ReservationRuntimeStore {
         context.reservationRuntimeStore.edit { it[KEY_CYCLE_CURRENT] = cycle.coerceAtLeast(1) }
     }
 
+    suspend fun setNextPointOffset(context: Context, offset: Int) {
+        context.reservationRuntimeStore.edit { it[KEY_NEXT_POINT_OFFSET] = offset.coerceAtLeast(0) }
+    }
+
     suspend fun pause(context: Context, remainingMs: Long) {
         context.reservationRuntimeStore.edit { prefs ->
             prefs[KEY_PAUSED] = true
@@ -189,6 +201,7 @@ object ReservationRuntimeStore {
             prefs[KEY_ACTIVE] = false
             prefs[KEY_PAUSED] = false
             prefs[KEY_PAUSED_REMAINING_MS] = 0L
+            prefs[KEY_NEXT_POINT_OFFSET] = 0
             prefs[KEY_STATUS_TEXT] = finalStatus
         }
     }
@@ -204,6 +217,7 @@ object ReservationRuntimeStore {
             prefs[KEY_PAUSED_REMAINING_MS] = 0L
             prefs[KEY_CYCLE_CURRENT] = 1
             prefs[KEY_CYCLE_TOTAL] = 0
+            prefs[KEY_NEXT_POINT_OFFSET] = 0
             prefs[KEY_RUN_MIN] = 1
             prefs[KEY_REST_MIN] = 1
             prefs[KEY_STATUS_TEXT] = statusText
