@@ -3,6 +3,7 @@ package com.sungyoon.helper.overlay.pointer
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
+import android.os.Build
 import android.text.InputType
 import android.util.TypedValue
 import android.view.Gravity
@@ -42,6 +43,10 @@ class PointerOverlayModalHostView(
         setBackgroundColor(Color.parseColor("#88000000"))
         isClickable = true
         visibility = View.GONE
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            elevation = dp(40).toFloat()
+            translationZ = dp(40).toFloat()
+        }
 
         addView(
             card,
@@ -74,7 +79,10 @@ class PointerOverlayModalHostView(
         onConfirm: () -> Unit
     ) {
         dismiss()
+        bringToFront()
         visibility = View.VISIBLE
+        requestLayout()
+        invalidate()
 
         card.addView(titleText(title))
         card.addView(
@@ -97,7 +105,10 @@ class PointerOverlayModalHostView(
         onSubmit: (String) -> Unit
     ) {
         dismiss()
+        bringToFront()
         visibility = View.VISIBLE
+        requestLayout()
+        invalidate()
 
         val edit = EditText(context).apply {
             setText(initialValue)

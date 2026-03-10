@@ -383,6 +383,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         cancelText: String,
         onConfirm: () -> Unit
     ) {
+        modalHost.bringToFront()
         modalHost.showConfirmationDialog(
             title = title,
             message = message,
@@ -400,6 +401,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         cancelText: String,
         onSubmit: (String) -> Unit
     ) {
+        modalHost.bringToFront()
         modalHost.showInputDialog(
             title = title,
             initialValue = initialValue,
