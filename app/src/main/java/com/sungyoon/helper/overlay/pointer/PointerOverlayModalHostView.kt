@@ -9,6 +9,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.Button
@@ -117,9 +118,15 @@ class PointerOverlayModalHostView(
             setHintTextColor(Color.parseColor("#7FFFFFFF"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            inputType = InputType.TYPE_CLASS_TEXT
-            imeOptions = EditorInfo.IME_ACTION_DONE
-            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or
+                    InputType.TYPE_TEXT_VARIATION_PERSON_NAME or
+                    InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+                    InputType.TYPE_TEXT_FLAG_AUTO_CORRECT
+            imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_FULLSCREEN
+            maxLines = 1
+            minLines = 1
+            isSingleLine = true
+            setHorizontallyScrolling(false)
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = PointerOverlayDrawables.roundedRippleBg(
                 fillColor = Color.parseColor("#1F1F1F"),
@@ -130,8 +137,12 @@ class PointerOverlayModalHostView(
             this.hint = hint
             setOnEditorActionListener { _, actionId, _ ->
                 if (actionId == EditorInfo.IME_ACTION_DONE) {
-                    submitInput(onSubmit)
-                    true
+                    if (hasComposingText()) {
+                        false
+                    } else {
+                        submitInput(onSubmit)
+                        true
+                    }
                 } else {
                     false
                 }
@@ -169,6 +180,13 @@ class PointerOverlayModalHostView(
         }
         onSubmit(value)
         dismiss()
+    }
+
+    private fun hasComposingText(): Boolean {
+        val edit = inputEdit ?: return false
+        val text = edit.text ?: return false
+        return BaseInputConnection.getComposingSpanStart(text) >= 0 &&
+                BaseInputConnection.getComposingSpanEnd(text) >= 0
     }
 
     private fun hideKeyboard() {
