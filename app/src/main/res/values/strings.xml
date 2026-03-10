@@ -16,7 +16,7 @@
     <string name="pointer_panel_close">닫기</string>
     <string name="pointer_interval_label">터치 간격 (초)</string>
     <string name="pointer_add">포인터 추가</string>
-    <string name="pointer_preset_list">프리셋 목록</string>
+    <string name="pointer_preset_list_button">&lt; 프리셋 목록</string>
     <string name="pointer_clear_all">전체 삭제</string>
     <string name="pointer_play_start">시작</string>
     <string name="pointer_touch_animation_on">터치 애니메이션 ON</string>
@@ -29,6 +29,7 @@
     <string name="pointer_repeat_desc_off">반복 실행 꺼짐</string>
     <string name="pointer_play_desc_start">시퀀스 시작</string>
     <string name="pointer_play_desc_stop">시퀀스 정지</string>
+    <string name="pointer_reservation_button">&lt; 예약</string>
 
     <string name="reservation_title">예약</string>
     <string name="reservation_waiting">예약 대기중</string>
@@ -67,9 +68,9 @@
     <string name="preset_delete_title">프리셋 삭제</string>
     <string name="preset_delete_message">선택한 프리셋을 삭제할까요?</string>
     <string name="preset_update_title">프리셋 업데이트</string>
-    <string name="preset_update_message">선택한 프리셋을 현재 포인트로 덮어쓸까요?</string>
+    <string name="preset_update_message">현재 포인트 위치들을 선택한 프리셋에 업데이트할까요?</string>
     <string name="preset_load_title">프리셋 불러오기</string>
-    <string name="preset_load_message">현재 포인트를 덮어쓰고 선택한 프리셋을 불러올까요?</string>
+    <string name="preset_load_message">선택한 프리셋을 불러오면 현재 포인트들은 덮어씌워집니다.</string>
 
     <string name="dialog_cancel">취소</string>
     <string name="dialog_save">저장</string>

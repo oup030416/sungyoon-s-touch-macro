@@ -333,8 +333,8 @@ object PointerOverlayControlsFactory {
         }
 
         val presetListBtn = actionButton(
-            text = context.getString(R.string.pointer_preset_list),
-            fillColor = Color.parseColor("#4D5B5CE6")
+            text = context.getString(R.string.pointer_preset_list_button),
+            fillColor = PLAY_STANDBY_FILL_COLOR
         ).apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
@@ -353,13 +353,13 @@ object PointerOverlayControlsFactory {
             fillColor = Color.parseColor("#334CAF50")
         ).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f).apply {
                 leftMargin = dp(8)
             }
         }
 
         val reserveBtn = actionButton(
-            text = context.getString(R.string.reservation_title),
+            text = context.getString(R.string.pointer_reservation_button),
             fillColor = PLAY_STANDBY_FILL_COLOR
         ).apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
@@ -369,7 +369,7 @@ object PointerOverlayControlsFactory {
             text = context.getString(R.string.pointer_touch_animation_on),
             fillColor = PLAY_STANDBY_FILL_COLOR
         ).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f).apply {
                 leftMargin = dp(8)
             }
         }
