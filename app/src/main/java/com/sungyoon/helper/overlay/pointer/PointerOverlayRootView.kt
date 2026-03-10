@@ -385,6 +385,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         message: String,
         confirmText: String,
         cancelText: String,
+        destructive: Boolean = false,
         onConfirm: () -> Unit
     ) {
         modalHost.bringToFront()
@@ -393,6 +394,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             message = message,
             confirmText = confirmText,
             cancelText = cancelText,
+            destructive = destructive,
             onConfirm = onConfirm
         )
     }

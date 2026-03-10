@@ -222,7 +222,8 @@ class PointerOverlayController(private val app: Context) {
                     title = app.getString(R.string.preset_delete_title),
                     message = app.getString(R.string.preset_delete_message),
                     confirmText = app.getString(R.string.dialog_delete),
-                    cancelText = app.getString(R.string.dialog_cancel)
+                    cancelText = app.getString(R.string.dialog_cancel),
+                    destructive = true
                 ) {
                     scope.launch {
                         if (PresetStore.deletePreset(app, preset.id)) {
@@ -239,7 +240,8 @@ class PointerOverlayController(private val app: Context) {
                     title = app.getString(R.string.preset_update_title),
                     message = app.getString(R.string.preset_update_message),
                     confirmText = app.getString(R.string.preset_update),
-                    cancelText = app.getString(R.string.dialog_cancel)
+                    cancelText = app.getString(R.string.dialog_cancel),
+                    destructive = false
                 ) {
                     scope.launch {
                         ensurePointsLoaded()
@@ -267,7 +269,8 @@ class PointerOverlayController(private val app: Context) {
                             title = app.getString(R.string.preset_load_title),
                             message = app.getString(R.string.preset_load_message),
                             confirmText = app.getString(R.string.dialog_load),
-                            cancelText = app.getString(R.string.dialog_cancel)
+                            cancelText = app.getString(R.string.dialog_cancel),
+                            destructive = false
                         ) {
                             scope.launch { loadAction() }
                         }

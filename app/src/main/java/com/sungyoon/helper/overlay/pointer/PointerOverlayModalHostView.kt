@@ -77,6 +77,7 @@ class PointerOverlayModalHostView(
         message: String,
         confirmText: String,
         cancelText: String,
+        destructive: Boolean = false,
         onConfirm: () -> Unit
     ) {
         dismiss()
@@ -91,7 +92,12 @@ class PointerOverlayModalHostView(
                 setPadding(0, dp(10), 0, 0)
             }
         )
-        card.addView(buttonRow(cancelText, confirmText, confirmColor = Color.parseColor("#8E2430")) {
+        val confirmColor = if (destructive) {
+            Color.parseColor("#8E2430")
+        } else {
+            Color.parseColor("#5B5CE6")
+        }
+        card.addView(buttonRow(cancelText, confirmText, confirmColor = confirmColor) {
             onConfirm()
             dismiss()
         })
