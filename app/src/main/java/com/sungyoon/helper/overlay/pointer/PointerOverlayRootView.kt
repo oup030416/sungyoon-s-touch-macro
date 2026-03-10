@@ -1037,8 +1037,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             alpha = 1f
             background = GradientDrawable().apply {
                 shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#145B5CE6"))
-                setStroke(dp(1), Color.parseColor("#555B5CE6"))
+                // Match pointer visual tone so random radius range is clearly visible.
+                setColor(Color.parseColor("#553F51B5"))
+                setStroke(dp(1), Color.parseColor("#AA3F51B5"))
             }
         }
         pointerLayer.addView(
