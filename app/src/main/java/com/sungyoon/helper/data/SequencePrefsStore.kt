@@ -14,6 +14,7 @@ private val Context.runtimeStore by preferencesDataStore(name = "sungyoon_helper
 object SequencePrefsStore {
     private val KEY_POINTER_PANEL_VISIBLE = booleanPreferencesKey("pointer_panel_visible")
     private val KEY_RESERVATION_PANEL_VISIBLE = booleanPreferencesKey("reservation_panel_visible")
+    private val KEY_PRESET_PANEL_VISIBLE = booleanPreferencesKey("preset_panel_visible")
 
     private val KEY_REPEAT_ENABLED = booleanPreferencesKey("repeat_enabled")
     private val KEY_SEQUENCE_RUNNING = booleanPreferencesKey("sequence_running")
@@ -31,6 +32,12 @@ object SequencePrefsStore {
             .flowOn(Dispatchers.IO)
     }
 
+    fun presetPanelVisibleFlow(context: Context): Flow<Boolean> {
+        return context.runtimeStore.data
+            .map { prefs -> prefs[KEY_PRESET_PANEL_VISIBLE] ?: false }
+            .flowOn(Dispatchers.IO)
+    }
+
     // ✅ 추가 Setter
     suspend fun setPointerPanelVisible(context: Context, visible: Boolean) {
         context.runtimeStore.edit { prefs ->
@@ -41,6 +48,12 @@ object SequencePrefsStore {
     suspend fun setReservationPanelVisible(context: Context, visible: Boolean) {
         context.runtimeStore.edit { prefs ->
             prefs[KEY_RESERVATION_PANEL_VISIBLE] = visible
+        }
+    }
+
+    suspend fun setPresetPanelVisible(context: Context, visible: Boolean) {
+        context.runtimeStore.edit { prefs ->
+            prefs[KEY_PRESET_PANEL_VISIBLE] = visible
         }
     }
 

@@ -11,6 +11,7 @@ import android.text.InputType
 import android.text.Spanned
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.view.ViewOutlineProvider
 import android.widget.Button
 import android.widget.EditText
@@ -25,10 +26,10 @@ data class PointerOverlayControlsViews(
     val controlPanel: LinearLayout,
     val addBtn: Button,
     val addDragBtn: Button,
-    val clearAllBtn: Button,
+    val presetListBtn: Button,
     val repeatToggleBtn: Button,
     val playToggleBtn: Button,
-    val reserveBtn: Button, // ✅ 추가
+    val reserveBtn: Button,
     val touchAnimToggleBtn: Button,
     val collapseBtn: ImageButton,
     val closeBtn: ImageButton,
@@ -90,14 +91,14 @@ object PointerOverlayControlsFactory {
         }
 
         val titleText = TextView(context).apply {
-            text = "터치포인터 관리"
+            text = context.getString(R.string.pointer_control_title)
             setTextColor(Color.WHITE)
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 17f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
         val subtitleText = TextView(context).apply {
-            text = "포인터 추가 후 이동 핸들로 위치를 조정하세요"
+            text = context.getString(R.string.pointer_control_subtitle)
             setTextColor(Color.parseColor("#B3FFFFFF"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
             setPadding(0, dp(3), 0, 0)
@@ -105,7 +106,7 @@ object PointerOverlayControlsFactory {
 
         val collapseBtn = ImageButton(context).apply {
             setImageResource(android.R.drawable.arrow_up_float)
-            contentDescription = "패널 숨기기"
+            contentDescription = context.getString(R.string.pointer_control_hide)
             background = PointerOverlayDrawables.circleRippleBg(
                 baseColor = Color.parseColor("#22FFFFFF"),
                 rippleColor = Color.parseColor("#33FFFFFF")
@@ -120,7 +121,7 @@ object PointerOverlayControlsFactory {
 
         val closeBtn = ImageButton(context).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
-            contentDescription = "닫기"
+            contentDescription = context.getString(R.string.pointer_panel_close)
             background = PointerOverlayDrawables.circleRippleBg(
                 baseColor = Color.parseColor("#22FFFFFF"),
                 rippleColor = Color.parseColor("#33FFFFFF")
@@ -138,14 +139,12 @@ object PointerOverlayControlsFactory {
         headerRow.addView(closeBtn)
 
         val hintText = TextView(context).apply {
-            text = "포인터를 선택해 이동 하거나 삭제 가능"
+            text = context.getString(R.string.pointer_control_hint)
             setTextColor(Color.parseColor("#B3FFFFFF"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
             setPadding(0, dp(8), 0, 0)
         }
 
-        // ---- [포인터 크기] 슬라이더 ----
-        // ---- 터치 간격 ----
         val intervalRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
@@ -156,14 +155,14 @@ object PointerOverlayControlsFactory {
         }
 
         val intervalLabel = TextView(context).apply {
-            text = "터치 간격 (초)"
+            text = context.getString(R.string.pointer_interval_label)
             setTextColor(Color.parseColor("#E6FFFFFF"))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val intervalBg = GradientDrawable().apply {
+        val inputBg = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             setColor(Color.parseColor("#1FFFFFFF"))
             cornerRadius = dp(14).toFloat()
@@ -179,12 +178,9 @@ object PointerOverlayControlsFactory {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            filters = arrayOf(
-                InputFilter.LengthFilter(5),
-                OneDecimalSecondsFilter()
-            )
+            filters = arrayOf(InputFilter.LengthFilter(5), OneDecimalSecondsFilter())
             gravity = Gravity.CENTER
-            background = intervalBg
+            background = inputBg.constantState?.newDrawable()?.mutate()
             setPadding(dp(12), dp(9), dp(12), dp(9))
             layoutParams = LinearLayout.LayoutParams(dp(90), LinearLayout.LayoutParams.WRAP_CONTENT)
             minHeight = dp(42)
@@ -194,7 +190,6 @@ object PointerOverlayControlsFactory {
         intervalRow.addView(intervalLabel)
         intervalRow.addView(intervalEdit)
 
-        // ---- 드래그 시간 ----
         val dragDurationRow = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(
@@ -212,13 +207,6 @@ object PointerOverlayControlsFactory {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val dragDurationBg = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            setColor(Color.parseColor("#1FFFFFFF"))
-            cornerRadius = dp(14).toFloat()
-            setStroke(dp(1), Color.parseColor("#33FFFFFF"))
-        }
-
         val dragDurationEdit = EditText(context).apply {
             setText("1.0")
             setSelection(text?.length ?: 0)
@@ -228,12 +216,9 @@ object PointerOverlayControlsFactory {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            filters = arrayOf(
-                InputFilter.LengthFilter(5),
-                OneDecimalSecondsFilter()
-            )
+            filters = arrayOf(InputFilter.LengthFilter(5), OneDecimalSecondsFilter())
             gravity = Gravity.CENTER
-            background = dragDurationBg
+            background = inputBg.constantState?.newDrawable()?.mutate()
             setPadding(dp(12), dp(9), dp(12), dp(9))
             layoutParams = LinearLayout.LayoutParams(dp(90), LinearLayout.LayoutParams.WRAP_CONTENT)
             minHeight = dp(42)
@@ -243,7 +228,6 @@ object PointerOverlayControlsFactory {
         dragDurationRow.addView(dragDurationLabel)
         dragDurationRow.addView(dragDurationEdit)
 
-        // ---- 랜덤 반지름 크기 ----
         val randomRadiusRow = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -291,18 +275,16 @@ object PointerOverlayControlsFactory {
         randomRadiusRow.addView(randomRadiusTop)
         randomRadiusRow.addView(randomRadiusSeek)
 
-        // Hidden placeholders kept for backward-compatible internal wiring.
         val pointerSizeSeek = SeekBar(context).apply {
             max = 9
             progress = 7
-            visibility = android.view.View.GONE
+            visibility = View.GONE
         }
         val pointerSizeValueText = TextView(context).apply {
             text = "8"
-            visibility = android.view.View.GONE
+            visibility = View.GONE
         }
 
-        // ---- 버튼들 ----
         val actionsCol = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             layoutParams = LinearLayout.LayoutParams(
@@ -311,132 +293,85 @@ object PointerOverlayControlsFactory {
             ).apply { topMargin = dp(10) }
         }
 
-        val addBtn = Button(context).apply {
-            text = "포인터 추가"
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = Color.parseColor("#5B5CE6"),
-                rippleColor = Color.parseColor("#33FFFFFF"),
-                dp = dp,
-                radiusDp = 14
-            )
-            setPadding(dp(12), dp(11), dp(12), dp(11))
+        fun actionButton(text: String, fillColor: Int): Button {
+            return Button(context).apply {
+                this.text = text
+                isAllCaps = false
+                setTextColor(Color.WHITE)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                background = PointerOverlayDrawables.roundedRippleBg(
+                    fillColor = fillColor,
+                    rippleColor = Color.parseColor("#33FFFFFF"),
+                    dp = dp,
+                    radiusDp = 14
+                )
+                setPadding(dp(12), dp(11), dp(12), dp(11))
+                minHeight = dp(42)
+            }
+        }
+
+        val addBtn = actionButton(
+            text = context.getString(R.string.pointer_add),
+            fillColor = Color.parseColor("#5B5CE6")
+        ).apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             }
-            minHeight = dp(42)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         }
 
-        val addDragBtn = Button(context).apply {
-            text = context.getString(R.string.pointer_add_drag)
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = Color.parseColor("#5B5CE6"),
-                rippleColor = Color.parseColor("#33FFFFFF"),
-                dp = dp,
-                radiusDp = 14
-            )
-            setPadding(dp(12), dp(11), dp(12), dp(11))
+        val addDragBtn = actionButton(
+            text = context.getString(R.string.pointer_add_drag),
+            fillColor = Color.parseColor("#5B5CE6")
+        ).apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             }
-            minHeight = dp(42)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         }
 
-        val clearAllBtn = Button(context).apply {
-            text = "전체 삭제"
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = Color.parseColor("#33FF5A5A"),
-                rippleColor = Color.parseColor("#33FFFFFF"),
-                dp = dp,
-                radiusDp = 14
-            )
-            setPadding(dp(12), dp(11), dp(12), dp(11))
-            layoutParams = LinearLayout.LayoutParams(dp(96), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+        val presetListBtn = actionButton(
+            text = context.getString(R.string.pointer_preset_list),
+            fillColor = Color.parseColor("#4D5B5CE6")
+        ).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(110), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 leftMargin = dp(8)
             }
-            minHeight = dp(42)
         }
 
-        val playToggleBtn = Button(context).apply {
-            text = "▶"
-            isAllCaps = false
-            setTextColor(Color.WHITE)
+        val playToggleBtn = actionButton(
+            text = context.getString(R.string.pointer_play_start),
+            fillColor = Color.parseColor("#334CAF50")
+        ).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = Color.parseColor("#334CAF50"),
-                rippleColor = Color.parseColor("#33FFFFFF"),
-                dp = dp,
-                radiusDp = 14
-            )
-            setPadding(dp(10), dp(11), dp(10), dp(11))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            minHeight = dp(42)
-        }
-
-        // ✅ [예약] 버튼 추가 (재생 옆)
-        val reserveBtn = Button(context).apply {
-            text = "예약"
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = PLAY_STANDBY_FILL_COLOR,
-                rippleColor = Color.parseColor("#33FFFFFF"),
-                dp = dp,
-                radiusDp = 14
-            )
-            setPadding(dp(12), dp(11), dp(12), dp(11))
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            minHeight = dp(42)
-        }
-
-        val touchAnimToggleBtn = Button(context).apply {
-            text = "터치 애니메이션 ON"
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 13.5f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = PLAY_STANDBY_FILL_COLOR,
-                rippleColor = Color.parseColor("#33FFFFFF"),
-                dp = dp,
-                radiusDp = 14
-            )
-            setPadding(dp(12), dp(11), dp(12), dp(11))
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             }
-            minHeight = dp(42)
         }
 
-        val repeatToggleBtn = Button(context).apply {
-            text = "반복 재생 ON"
-            isAllCaps = false
-            setTextColor(Color.WHITE)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            background = PointerOverlayDrawables.roundedRippleBg(
-                fillColor = Color.parseColor("#2FFFFFFF"),
-                rippleColor = Color.parseColor("#33FFFFFF"),
-                dp = dp,
-                radiusDp = 14
-            )
-            setPadding(dp(10), dp(11), dp(10), dp(11))
+        val reserveBtn = actionButton(
+            text = context.getString(R.string.reservation_title),
+            fillColor = PLAY_STANDBY_FILL_COLOR
+        ).apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            minHeight = dp(42)
+        }
+
+        val touchAnimToggleBtn = actionButton(
+            text = context.getString(R.string.pointer_touch_animation_on),
+            fillColor = PLAY_STANDBY_FILL_COLOR
+        ).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(8)
+            }
+        }
+
+        val repeatToggleBtn = actionButton(
+            text = context.getString(R.string.pointer_repeat_on),
+            fillColor = Color.parseColor("#2FFFFFFF")
+        ).apply {
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         val row1 = LinearLayout(context).apply {
@@ -467,13 +402,9 @@ object PointerOverlayControlsFactory {
         }
 
         row1.addView(touchAnimToggleBtn)
-        row2.addView(clearAllBtn)
+        row2.addView(presetListBtn)
         row2.addView(addBtn)
         row2.addView(addDragBtn)
-
-        (playToggleBtn.layoutParams as LinearLayout.LayoutParams).leftMargin = dp(8)
-        // ✅ 재생 + 예약
-        row3.removeAllViews()
         row3.addView(reserveBtn)
         row3.addView(playToggleBtn)
 
@@ -492,10 +423,10 @@ object PointerOverlayControlsFactory {
             controlPanel = controlPanel,
             addBtn = addBtn,
             addDragBtn = addDragBtn,
-            clearAllBtn = clearAllBtn,
+            presetListBtn = presetListBtn,
             repeatToggleBtn = repeatToggleBtn,
             playToggleBtn = playToggleBtn,
-            reserveBtn = reserveBtn, // ✅ 추가
+            reserveBtn = reserveBtn,
             touchAnimToggleBtn = touchAnimToggleBtn,
             collapseBtn = collapseBtn,
             closeBtn = closeBtn,
@@ -512,6 +443,7 @@ object PointerOverlayControlsFactory {
 
     private class OneDecimalSecondsFilter : InputFilter {
         private val regex = Regex("^\\d{0,4}([.]\\d{0,1})?$")
+
         override fun filter(
             source: CharSequence?,
             start: Int,
@@ -530,5 +462,4 @@ object PointerOverlayControlsFactory {
             return if (regex.matches(next)) null else ""
         }
     }
-
 }

@@ -144,6 +144,25 @@ object PointsStore {
         }
     }
 
+    suspend fun replaceAll(context: Context, points: List<HighlightingPoint>) {
+        context.dataStore.edit { prefs ->
+            val next = points.sortedBy { it.index }.take(2000)
+            val encoded = if (next.isEmpty()) {
+                ""
+            } else {
+                json.encodeToString(listSer, next)
+            }
+
+            if (encoded.isBlank()) {
+                prefs.remove(KEY_POINTS)
+            } else {
+                prefs[KEY_POINTS] = encoded
+            }
+            prefs[KEY_SCHEMA] = SCHEMA_SCREEN
+            updateCache(encoded, next)
+        }
+    }
+
     suspend fun migrateToScreenCoordsIfNeeded(context: Context, dx: Float, dy: Float) {
         context.dataStore.edit { prefs ->
             val schema = prefs[KEY_SCHEMA] ?: SCHEMA_LOCAL

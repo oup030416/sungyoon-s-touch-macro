@@ -19,6 +19,7 @@ import androidx.core.view.children
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
+import com.sungyoon.helper.model.PresetEntry
 import com.sungyoon.helper.util.PointerSizeSpec
 import java.util.Locale
 import kotlin.math.atan2
@@ -57,6 +58,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     // ✅ 예약 버튼 콜백
     private var onReserveClick: (() -> Unit)? = null
+    private var onPresetListClick: (() -> Unit)? = null
 
     // syncPoints 재구성을 위한 캐시
     private var lastPoints: List<HighlightingPoint> = emptyList()
@@ -79,6 +81,19 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             alpha = 0f
             setOnCloseClick { setReservationPanelVisible(false) }
         }
+
+    private val presetPanel: PointerOverlayPresetPanelView =
+        PointerOverlayPresetPanelView(context, ::dp).apply {
+            visibility = View.GONE
+            alpha = 0f
+            setOnCloseClick { setPresetPanelVisible(false) }
+        }
+
+    private val modalHost = PointerOverlayModalHostView(
+        context = context,
+        dp = ::dp,
+        onRequestIme = ::requestIme
+    )
 
     private val miniPanelToggleBtn: ImageButton = ImageButton(context).apply {
         setImageResource(android.R.drawable.arrow_down_float)
@@ -177,8 +192,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         // ✅ controlPanel 위에 예약 패널을 올려 "완전히 가리기"
         addView(reservationPanel)
+        addView(presetPanel)
 
         addView(miniPanelToggleBtn)
+        addView(modalHost)
 
         // move stick / delete button
         pointerLayer.addView(
@@ -208,11 +225,15 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         // ✅ 예약 버튼 클릭 → 컨트롤러에서 등록한 콜백 호출(기본 동작: 예약 패널 열기)
         controls.reserveBtn.setOnClickListener { onReserveClick?.invoke() }
+        controls.presetListBtn.setOnClickListener { onPresetListClick?.invoke() }
 
         // controlPanel 레이아웃이 바뀌면(회전/리사이즈) 예약 패널도 즉시 동기화
         controls.controlPanel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             if (reservationPanel.visibility == View.VISIBLE) {
                 syncReservationPanelLayout(matchHeightToControlPanel = true)
+            }
+            if (presetPanel.visibility == View.VISIBLE) {
+                syncPresetPanelLayout(matchHeightToControlPanel = true)
             }
         }
 
@@ -254,7 +275,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             // ✅ 예약 패널이 떠있을 땐 예약 패널도 "패널 영역"으로 간주
             val touchedPanel =
                 isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.controlPanel) ||
-                        (reservationPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, reservationPanel))
+                        (reservationPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, reservationPanel)) ||
+                        (presetPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, presetPanel)) ||
+                        (modalHost.isShowing() && isTouchInsideViewRaw(ev.rawX, ev.rawY, modalHost))
 
             val touchedMini = (miniPanelToggleBtn.visibility == View.VISIBLE) &&
                     isTouchInsideViewRaw(ev.rawX, ev.rawY, miniPanelToggleBtn)
@@ -280,8 +303,13 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         onReserveClick = block
     }
 
+    fun setOnPresetListClick(block: () -> Unit) {
+        onPresetListClick = block
+    }
+
     private var onControlPanelVisibleChanged: ((Boolean) -> Unit)? = null
     private var onReservationPanelVisibleChanged: ((Boolean) -> Unit)? = null
+    private var onPresetPanelVisibleChanged: ((Boolean) -> Unit)? = null
 
 
     fun setOnControlPanelVisibleChanged(block: (Boolean) -> Unit) {
@@ -292,9 +320,14 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         onReservationPanelVisibleChanged = block
     }
 
+    fun setOnPresetPanelVisibleChanged(block: (Boolean) -> Unit) {
+        onPresetPanelVisibleChanged = block
+    }
+
     // ✅ 컨트롤러에서 상태 저장용으로 읽기 API
     fun isControlPanelVisible(): Boolean = panelVisible
     fun isReservationPanelVisible(): Boolean = reservationPanel.visibility == View.VISIBLE
+    fun isPresetPanelVisible(): Boolean = presetPanel.visibility == View.VISIBLE
 
     // ✅ 컨트롤러에서 복원 적용용
     fun setControlPanelVisibleFromController(visible: Boolean) {
@@ -309,6 +342,74 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         setReservationPanelVisible(false)
     }
 
+    fun openPresetPanel() {
+        setPresetPanelVisible(true)
+    }
+
+    fun closePresetPanel() {
+        setPresetPanelVisible(false)
+    }
+
+    fun setPresetEntries(entries: List<PresetEntry>) {
+        presetPanel.setPresets(entries)
+    }
+
+    fun getSelectedPresetId(): String? = presetPanel.getSelectedPresetId()
+
+    fun setSelectedPresetId(presetId: String?) {
+        presetPanel.setSelectedPresetId(presetId)
+    }
+
+    fun setOnPresetAddCurrentClick(block: () -> Unit) {
+        presetPanel.setOnAddCurrentClick(block)
+    }
+
+    fun setOnPresetDeleteClick(block: (String) -> Unit) {
+        presetPanel.setOnDeleteClick(block)
+    }
+
+    fun setOnPresetLoadClick(block: (String) -> Unit) {
+        presetPanel.setOnLoadClick(block)
+    }
+
+    fun setOnPresetRenameClick(block: (PresetEntry) -> Unit) {
+        presetPanel.setOnRenameClick(block)
+    }
+
+    fun showConfirmationDialog(
+        title: String,
+        message: String,
+        confirmText: String,
+        cancelText: String,
+        onConfirm: () -> Unit
+    ) {
+        modalHost.showConfirmationDialog(
+            title = title,
+            message = message,
+            confirmText = confirmText,
+            cancelText = cancelText,
+            onConfirm = onConfirm
+        )
+    }
+
+    fun showInputDialog(
+        title: String,
+        initialValue: String,
+        hint: String,
+        confirmText: String,
+        cancelText: String,
+        onSubmit: (String) -> Unit
+    ) {
+        modalHost.showInputDialog(
+            title = title,
+            initialValue = initialValue,
+            hint = hint,
+            confirmText = confirmText,
+            cancelText = cancelText,
+            onSubmit = onSubmit
+        )
+    }
+
     private fun setReservationPanelVisible(visible: Boolean) {
         val wasVisible = reservationPanel.visibility == View.VISIBLE
         if (wasVisible == visible) return
@@ -317,6 +418,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             // 패널이 숨김 상태면 먼저 보이게
             if (!panelVisible) setControlPanelVisible(true)
 
+            if (!panelVisible) setControlPanelVisible(true)
+            closePresetPanel()
             syncReservationPanelLayout(matchHeightToControlPanel = true)
 
             reservationPanel.visibility = View.VISIBLE
@@ -345,8 +448,50 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         onReservationPanelVisibleChanged?.invoke(visible)
     }
 
+    private fun setPresetPanelVisible(visible: Boolean) {
+        val wasVisible = presetPanel.visibility == View.VISIBLE
+        if (wasVisible == visible) return
+
+        if (visible) {
+            if (!panelVisible) setControlPanelVisible(true)
+            closeReservationPanel()
+            syncPresetPanelLayout(matchHeightToControlPanel = true)
+
+            presetPanel.visibility = View.VISIBLE
+            presetPanel.alpha = 0f
+            presetPanel.scaleX = 0.98f
+            presetPanel.scaleY = 0.98f
+            presetPanel.animate()
+                .alpha(1f).scaleX(1f).scaleY(1f)
+                .setDuration(60L)
+                .start()
+        } else {
+            presetPanel.animate().cancel()
+            if (presetPanel.visibility == View.VISIBLE) {
+                presetPanel.animate()
+                    .alpha(0f).scaleX(0.98f).scaleY(0.98f)
+                    .setDuration(60L)
+                    .withEndAction { presetPanel.visibility = View.GONE }
+                    .start()
+            } else {
+                presetPanel.visibility = View.GONE
+                presetPanel.alpha = 0f
+            }
+        }
+
+        onPresetPanelVisibleChanged?.invoke(visible)
+    }
+
 
     private fun syncReservationPanelLayout(matchHeightToControlPanel: Boolean) {
+        syncOverlayPanelLayout(reservationPanel, matchHeightToControlPanel)
+    }
+
+    private fun syncPresetPanelLayout(matchHeightToControlPanel: Boolean) {
+        syncOverlayPanelLayout(presetPanel, matchHeightToControlPanel)
+    }
+
+    private fun syncOverlayPanelLayout(panel: View, matchHeightToControlPanel: Boolean) {
         val src = controls.controlPanel.layoutParams as? FrameLayout.LayoutParams ?: return
 
         val desiredH = if (matchHeightToControlPanel && controls.controlPanel.height > 0) {
@@ -362,10 +507,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             rightMargin = src.rightMargin
             bottomMargin = src.bottomMargin
         }
-        reservationPanel.layoutParams = lp
+        panel.layoutParams = lp
 
         if (matchHeightToControlPanel && controls.controlPanel.height > 0) {
-            reservationPanel.minimumHeight = controls.controlPanel.height
+            panel.minimumHeight = controls.controlPanel.height
         }
     }
 
@@ -524,6 +669,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             // ✅ 패널을 숨길 때 예약 패널도 같이 닫음
             closeReservationPanel()
 
+            closePresetPanel()
+            modalHost.dismiss()
+
             if (controls.intervalEdit.hasFocus()) {
                 controls.intervalEdit.clearFocus()
                 hideKeyboard()
@@ -584,6 +732,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.repeatToggleBtn.setOnClickListener { block() }
     }
 
+/*
     fun setRepeatEnabled(enabled: Boolean) {
         controls.repeatToggleBtn.text = if (enabled) "반복 실행 ON" else "반복 실행 OFF"
         controls.repeatToggleBtn.contentDescription = if (enabled) "반복 실행 켜짐" else "반복 실행 꺼짐"
@@ -630,8 +779,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.addDragBtn.setOnClickListener { block() }
     }
 
-    fun setOnClearAllClick(block: () -> Unit) {
-        controls.clearAllBtn.setOnClickListener { block() }
+    fun setOnPresetListButtonClick(block: () -> Unit) {
+        controls.presetListBtn.setOnClickListener { block() }
     }
 
     fun setOnCloseClick(block: () -> Unit) {
@@ -656,6 +805,89 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             radiusDp = 14
         )
         controls.playToggleBtn.contentDescription = if (running) "정지" else "재생"
+    }
+
+*/
+
+    fun setRepeatEnabled(enabled: Boolean) {
+        controls.repeatToggleBtn.text =
+            context.getString(if (enabled) R.string.pointer_repeat_on else R.string.pointer_repeat_off)
+        controls.repeatToggleBtn.contentDescription =
+            context.getString(if (enabled) R.string.pointer_repeat_desc_on else R.string.pointer_repeat_desc_off)
+        controls.repeatToggleBtn.background = PointerOverlayDrawables.roundedRippleBg(
+            fillColor = if (enabled) Color.parseColor("#4D5B5CE6") else Color.parseColor("#2FFFFFFF"),
+            rippleColor = Color.parseColor("#33FFFFFF"),
+            dp = ::dp,
+            radiusDp = 14
+        )
+    }
+
+    fun setTouchAnimationEnabled(enabled: Boolean) {
+        controls.touchAnimToggleBtn.text =
+            context.getString(if (enabled) R.string.pointer_touch_animation_on else R.string.pointer_touch_animation_off)
+        controls.touchAnimToggleBtn.contentDescription =
+            context.getString(
+                if (enabled) R.string.pointer_touch_animation_desc_on
+                else R.string.pointer_touch_animation_desc_off
+            )
+        controls.touchAnimToggleBtn.background = PointerOverlayDrawables.roundedRippleBg(
+            fillColor = if (enabled) PLAY_STANDBY_FILL_COLOR else Color.parseColor("#2FFFFFFF"),
+            rippleColor = Color.parseColor("#33FFFFFF"),
+            dp = ::dp,
+            radiusDp = 14
+        )
+    }
+
+    fun getPointerLayerOffsetOnScreen(): Pair<Int, Int> {
+        pointerLayer.getLocationOnScreen(tmpLoc)
+        return tmpLoc[0] to tmpLoc[1]
+    }
+
+    fun localCenterToScreen(centerX: Float, centerY: Float): Pair<Float, Float> {
+        pointerLayer.getLocationOnScreen(tmpLoc)
+        return (tmpLoc[0] + centerX) to (tmpLoc[1] + centerY)
+    }
+
+    fun screenCenterToLocal(screenX: Float, screenY: Float): Pair<Float, Float> {
+        pointerLayer.getLocationOnScreen(tmpLoc)
+        return (screenX - tmpLoc[0]) to (screenY - tmpLoc[1])
+    }
+
+    fun setOnAddClick(block: () -> Unit) {
+        controls.addBtn.setOnClickListener { block() }
+    }
+
+    fun setOnAddDragClick(block: () -> Unit) {
+        controls.addDragBtn.setOnClickListener { block() }
+    }
+
+    fun setOnPresetListButtonClick(block: () -> Unit) {
+        controls.presetListBtn.setOnClickListener { block() }
+    }
+
+    fun setOnCloseClick(block: () -> Unit) {
+        controls.closeBtn.setOnClickListener { block() }
+    }
+
+    fun setOnPlayToggleClick(block: () -> Unit) {
+        controls.playToggleBtn.setOnClickListener { block() }
+    }
+
+    fun setOnTouchAnimationToggleClick(block: () -> Unit) {
+        controls.touchAnimToggleBtn.setOnClickListener { block() }
+    }
+
+    fun setSequenceRunning(running: Boolean) {
+        controls.playToggleBtn.text = if (running) "■" else "▶"
+        val fill = if (running) PLAY_RUNNING_FILL_COLOR else PLAY_STANDBY_FILL_COLOR
+        controls.playToggleBtn.background = PointerOverlayDrawables.roundedRippleBg(
+            fillColor = fill,
+            rippleColor = Color.parseColor("#33FFFFFF"),
+            dp = ::dp,
+            radiusDp = 14
+        )
+        controls.playToggleBtn.contentDescription =
+            context.getString(if (running) R.string.pointer_play_desc_stop else R.string.pointer_play_desc_start)
     }
 
     fun setTapIntervalSeconds(seconds: Float) {

@@ -19,6 +19,7 @@ import com.sungyoon.helper.core.permissions.openAccessibilitySettings
 import com.sungyoon.helper.core.permissions.openOverlaySettings
 import com.sungyoon.helper.data.DragDurationStore
 import com.sungyoon.helper.data.PointsStore
+import com.sungyoon.helper.data.PresetStore
 import com.sungyoon.helper.data.RandomTouchRadiusStore
 import com.sungyoon.helper.data.ReservationPrefsStore
 import com.sungyoon.helper.data.ReservationRuntimeStore
@@ -27,6 +28,7 @@ import com.sungyoon.helper.data.TapIntervalStore
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_TAP
+import com.sungyoon.helper.model.PresetEntry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -52,6 +54,7 @@ class PointerOverlayController(private val app: Context) {
     private var collectStartFallbackJob: Job? = null
 
     private var latestPoints: List<HighlightingPoint> = emptyList()
+    private var latestPresets: List<PresetEntry> = emptyList()
     private val draggingIds = HashSet<String>()
     private var collectStarted: Boolean = false
 
@@ -88,7 +91,7 @@ class PointerOverlayController(private val app: Context) {
 
         if (!isOverlayGranted(app)) {
             app.openOverlaySettings()
-            toast("오버레이 권한이 필요합니다.")
+            toast(app.getString(R.string.toast_overlay_required))
             return
         }
 
@@ -104,6 +107,9 @@ class PointerOverlayController(private val app: Context) {
             setOnReservationPanelVisibleChanged { visible ->
                 scope.launch { SequencePrefsStore.setReservationPanelVisible(app, visible) }
             }
+            setOnPresetPanelVisibleChanged { visible ->
+                scope.launch { SequencePrefsStore.setPresetPanelVisible(app, visible) }
+            }
 
             setOnReservationStartClick { runSec, restSec, repeatCount ->
                 scope.launch {
@@ -116,12 +122,12 @@ class PointerOverlayController(private val app: Context) {
                                 setPackage(app.packageName)
                                 putExtra(SungyoonHelperService.EXTRA_MANUAL_RESUME, true)
                             })
-                            toast("예약 작업 재개")
+                            toast(app.getString(R.string.toast_reservation_resumed))
                             hide()
                             return@launch
                         }
 
-                        toast("이미 예약이 진행중입니다. '예약 취소' 후 다시 시작하세요.")
+                        toast(app.getString(R.string.reservation_already_running))
                         return@launch
                     }
 
@@ -132,17 +138,18 @@ class PointerOverlayController(private val app: Context) {
 
                     SequencePrefsStore.setPointerPanelVisible(app, true)
                     SequencePrefsStore.setReservationPanelVisible(app, true)
+                    SequencePrefsStore.setPresetPanelVisible(app, false)
 
 
                     if (!isServiceEnabled(app)) {
                         app.openAccessibilitySettings()
-                        toast("접근성 서비스(ON)가 필요합니다.")
+                        toast(app.getString(R.string.toast_accessibility_required))
                         return@launch
                     }
 
                     ensurePointsLoaded()
                     if (latestPoints.isEmpty()) {
-                        toast("포인트가 없습니다. 포인터를 추가하세요.")
+                        toast(app.getString(R.string.toast_points_required))
                         return@launch
                     }
 
@@ -154,7 +161,7 @@ class PointerOverlayController(private val app: Context) {
                         putExtra(SungyoonHelperService.EXTRA_REPEAT_COUNT, repeatCount)
                     })
 
-                    toast("예약 작업 시작")
+                    toast(app.getString(R.string.toast_reservation_started))
                     hide()
                 }
             }
@@ -173,10 +180,75 @@ class PointerOverlayController(private val app: Context) {
                 }
             }
 
-            setOnClearAllClick {
+            setOnPresetListClick {
+                openPresetPanel()
+            }
+
+            setOnPresetAddCurrentClick {
                 scope.launch {
-                    PointsStore.clear(app)
-                    toast("전체 삭제 완료")
+                    ensurePointsLoaded()
+                    val created = PresetStore.addPreset(app, latestPoints)
+                    root?.setSelectedPresetId(created.id)
+                    toast(app.getString(R.string.preset_add_saved))
+                }
+            }
+
+            setOnPresetRenameClick { preset ->
+                showInputDialog(
+                    title = app.getString(R.string.preset_rename_title),
+                    initialValue = preset.name,
+                    hint = app.getString(R.string.preset_name_hint),
+                    confirmText = app.getString(R.string.dialog_save),
+                    cancelText = app.getString(R.string.dialog_cancel)
+                ) { nextName ->
+                    scope.launch {
+                        if (PresetStore.renamePreset(app, preset.id, nextName)) {
+                            toast(app.getString(R.string.preset_renamed))
+                        }
+                    }
+                }
+            }
+
+            setOnPresetDeleteClick { presetId ->
+                val preset = latestPresets.firstOrNull { it.id == presetId } ?: return@setOnPresetDeleteClick
+                showConfirmationDialog(
+                    title = app.getString(R.string.preset_delete_title),
+                    message = app.getString(R.string.preset_delete_message),
+                    confirmText = app.getString(R.string.dialog_delete),
+                    cancelText = app.getString(R.string.dialog_cancel)
+                ) {
+                    scope.launch {
+                        if (PresetStore.deletePreset(app, preset.id)) {
+                            root?.setSelectedPresetId(null)
+                            toast(app.getString(R.string.preset_deleted))
+                        }
+                    }
+                }
+            }
+
+            setOnPresetLoadClick { presetId ->
+                val preset = latestPresets.firstOrNull { it.id == presetId } ?: return@setOnPresetLoadClick
+                scope.launch {
+                    ensurePointsLoaded()
+                    val loadAction: suspend () -> Unit = {
+                        loadPresetIntoPoints(preset)
+                        root?.setSelectedPresetId(preset.id)
+                        root?.closePresetPanel()
+                        toast(app.getString(R.string.preset_loaded))
+                    }
+
+                    if (latestPoints.isNotEmpty()) {
+                        root?.showConfirmationDialog(
+                            title = app.getString(R.string.preset_load_title),
+                            message = app.getString(R.string.preset_load_message),
+                            confirmText = app.getString(R.string.dialog_load),
+                            cancelText = app.getString(R.string.dialog_cancel)
+                        ) {
+                            scope.launch { loadAction() }
+                        }
+                    } else {
+                        loadAction()
+                    }
                 }
             }
 
@@ -239,7 +311,7 @@ class PointerOverlayController(private val app: Context) {
             setOnDeletePointClick { id ->
                 scope.launch {
                     PointsStore.deletePoint(app, id)
-                    toast("포인터 삭제")
+                    toast(app.getString(R.string.toast_pointer_deleted))
                 }
             }
         }
@@ -267,7 +339,7 @@ class PointerOverlayController(private val app: Context) {
             root = null
             added = false
             overlayLp = null
-            toast("오버레이 표시 실패: ${t.javaClass.simpleName}")
+            toast(app.getString(R.string.toast_overlay_failed, t.javaClass.simpleName))
             return
         }
 
@@ -320,6 +392,7 @@ class PointerOverlayController(private val app: Context) {
             // ✅ 여기서 pref를 읽고
             val panelVisiblePref = SequencePrefsStore.pointerPanelVisibleFlow(app).first()
             val reservationVisiblePref = SequencePrefsStore.reservationPanelVisibleFlow(app).first()
+            val presetVisiblePref = SequencePrefsStore.presetPanelVisibleFlow(app).first()
 
             // ✅ 같은 스코프에서 바로 사용
             val rv = root ?: return@launch
@@ -328,18 +401,22 @@ class PointerOverlayController(private val app: Context) {
 
                 val effectivePanelVisible = if (forceOpenControlPanel) {
                     true
-                } else if (reservationVisiblePref) {
+                } else if (reservationVisiblePref || presetVisiblePref) {
                     true
                 } else {
                     panelVisiblePref
                 }
                 v.setControlPanelVisibleFromController(effectivePanelVisible)
 
-                if (reservationVisiblePref) {
+                if (presetVisiblePref) {
+                    v.openPresetPanel()
+                    v.closeReservationPanel()
+                } else if (reservationVisiblePref) {
                     v.openReservationPanel()
                     scope.launch { loadReservationPrefsInto(v) } // ✅ 예약값 복원 주입
                 } else {
                     v.closeReservationPanel()
+                    v.closePresetPanel()
                 }
             }
         }
@@ -350,9 +427,11 @@ class PointerOverlayController(private val app: Context) {
         root?.let { v ->
             val panelVisibleNow = v.isControlPanelVisible()
             val reservationVisibleNow = v.isReservationPanelVisible()
+            val presetVisibleNow = v.isPresetPanelVisible()
             scope.launch {
                 SequencePrefsStore.setPointerPanelVisible(app, panelVisibleNow)
                 SequencePrefsStore.setReservationPanelVisible(app, reservationVisibleNow)
+                SequencePrefsStore.setPresetPanelVisible(app, presetVisibleNow)
             }
         }
 
@@ -392,20 +471,20 @@ class PointerOverlayController(private val app: Context) {
             )
             v.setSequenceRunning(false)
             sequenceRunning = false
-            toast("시퀀스 중지")
+            toast(app.getString(R.string.toast_sequence_stopped))
             return
         }
 
         if (!isServiceEnabled(app)) {
             app.openAccessibilitySettings()
-            toast("접근성 서비스(ON)가 필요합니다.")
+            toast(app.getString(R.string.toast_accessibility_required))
             return
         }
 
         scope.launch {
             ensurePointsLoaded()
             if (latestPoints.isEmpty()) {
-                toast("포인트가 없습니다. 포인터를 추가하세요.")
+                toast(app.getString(R.string.toast_points_required))
                 return@launch
             }
 
@@ -414,7 +493,12 @@ class PointerOverlayController(private val app: Context) {
                     setPackage(app.packageName)
                 }
             )
-            toast(if (repeatEnabled) "반복 시퀀스 시작" else "시퀀스 시작")
+            toast(
+                app.getString(
+                    if (repeatEnabled) R.string.toast_sequence_repeat_started
+                    else R.string.toast_sequence_started
+                )
+            )
             hide()
         }
     }
@@ -500,6 +584,16 @@ class PointerOverlayController(private val app: Context) {
                     root?.setRandomTouchRadiusDp(clamped)
                 }
             }
+            launch {
+                PresetStore.presetsFlow(app).collectLatest { presets ->
+                    latestPresets = presets.sortedByDescending { it.createdAtEpochMs }
+                    root?.setPresetEntries(latestPresets)
+                    val selectedId = root?.getSelectedPresetId()
+                    if (selectedId != null && latestPresets.none { it.id == selectedId }) {
+                        root?.setSelectedPresetId(null)
+                    }
+                }
+            }
         }
     }
 
@@ -515,6 +609,38 @@ class PointerOverlayController(private val app: Context) {
         if (latestPoints.isEmpty()) {
             latestPoints = PointsStore.pointsFlow(app).first()
         }
+    }
+
+    private suspend fun loadPresetIntoPoints(preset: PresetEntry) {
+        val points = preset.points
+            .sortedBy { it.index }
+            .map { presetPoint ->
+                val startX = presetPoint.x
+                val startY = presetPoint.y
+                if (presetPoint.actionType == ACTION_TYPE_DRAG) {
+                    HighlightingPoint(
+                        x = startX,
+                        y = startY,
+                        index = presetPoint.index,
+                        delayMs = tapIntervalMs,
+                        actionType = ACTION_TYPE_DRAG,
+                        dragToX = presetPoint.dragToX,
+                        dragToY = presetPoint.dragToY,
+                        dragDurationMs = clampDragDurationMs(dragDurationMs)
+                    )
+                } else {
+                    HighlightingPoint(
+                        x = startX,
+                        y = startY,
+                        index = presetPoint.index,
+                        delayMs = tapIntervalMs,
+                        actionType = ACTION_TYPE_TAP,
+                        dragToX = startX,
+                        dragToY = startY
+                    )
+                }
+            }
+        PointsStore.replaceAll(app, points)
     }
 
     private fun performAddPointer() {
