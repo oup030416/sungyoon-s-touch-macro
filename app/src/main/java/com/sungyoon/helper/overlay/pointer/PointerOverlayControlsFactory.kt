@@ -24,6 +24,7 @@ import com.sungyoon.helper.R
 
 data class PointerOverlayControlsViews(
     val controlPanel: LinearLayout,
+    val clearAllBtn: Button,
     val addBtn: Button,
     val addDragBtn: Button,
     val presetListBtn: Button,
@@ -335,9 +336,16 @@ object PointerOverlayControlsFactory {
             text = context.getString(R.string.pointer_preset_list),
             fillColor = Color.parseColor("#4D5B5CE6")
         ).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(110), LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             }
+        }
+
+        val clearAllBtn = actionButton(
+            text = context.getString(R.string.pointer_clear_all),
+            fillColor = Color.parseColor("#8E2430")
+        ).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         val playToggleBtn = actionButton(
@@ -401,8 +409,9 @@ object PointerOverlayControlsFactory {
             gravity = Gravity.CENTER_VERTICAL
         }
 
+        row1.addView(presetListBtn)
         row1.addView(touchAnimToggleBtn)
-        row2.addView(presetListBtn)
+        row2.addView(clearAllBtn)
         row2.addView(addBtn)
         row2.addView(addDragBtn)
         row3.addView(reserveBtn)
@@ -421,6 +430,7 @@ object PointerOverlayControlsFactory {
 
         return PointerOverlayControlsViews(
             controlPanel = controlPanel,
+            clearAllBtn = clearAllBtn,
             addBtn = addBtn,
             addDragBtn = addDragBtn,
             presetListBtn = presetListBtn,

@@ -17,6 +17,7 @@
     <string name="pointer_interval_label">터치 간격 (초)</string>
     <string name="pointer_add">포인터 추가</string>
     <string name="pointer_preset_list">프리셋 목록</string>
+    <string name="pointer_clear_all">전체 삭제</string>
     <string name="pointer_play_start">시작</string>
     <string name="pointer_touch_animation_on">터치 애니메이션 ON</string>
     <string name="pointer_touch_animation_off">터치 애니메이션 OFF</string>
@@ -76,6 +77,7 @@
     <string name="toast_accessibility_required">접근성 서비스(ON)가 필요합니다.</string>
     <string name="toast_points_required">포인트가 없습니다. 포인터를 추가하세요.</string>
     <string name="toast_pointer_deleted">포인터를 삭제했습니다.</string>
+    <string name="toast_clear_all_done">전체 삭제를 완료했습니다.</string>
     <string name="toast_sequence_stopped">시퀀스를 중지했습니다.</string>
     <string name="toast_sequence_started">시퀀스를 시작했습니다.</string>
     <string name="toast_sequence_repeat_started">반복 시퀀스를 시작했습니다.</string>

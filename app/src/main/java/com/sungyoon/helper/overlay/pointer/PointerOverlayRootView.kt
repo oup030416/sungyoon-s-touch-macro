@@ -781,6 +781,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.addDragBtn.setOnClickListener { block() }
     }
 
+    fun setOnClearAllClick(block: () -> Unit) {
+        controls.clearAllBtn.setOnClickListener { block() }
+    }
+
     fun setOnPresetListButtonClick(block: () -> Unit) {
         controls.presetListBtn.setOnClickListener { block() }
     }
@@ -861,6 +865,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     fun setOnAddDragClick(block: () -> Unit) {
         controls.addDragBtn.setOnClickListener { block() }
+    }
+
+    fun setOnClearAllClick(block: () -> Unit) {
+        controls.clearAllBtn.setOnClickListener { block() }
     }
 
     fun setOnPresetListButtonClick(block: () -> Unit) {

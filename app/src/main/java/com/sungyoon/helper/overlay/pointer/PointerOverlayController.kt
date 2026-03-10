@@ -184,6 +184,13 @@ class PointerOverlayController(private val app: Context) {
                 openPresetPanel()
             }
 
+            setOnClearAllClick {
+                scope.launch {
+                    PointsStore.clear(app)
+                    toast(app.getString(R.string.toast_clear_all_done))
+                }
+            }
+
             setOnPresetAddCurrentClick {
                 scope.launch {
                     ensurePointsLoaded()
