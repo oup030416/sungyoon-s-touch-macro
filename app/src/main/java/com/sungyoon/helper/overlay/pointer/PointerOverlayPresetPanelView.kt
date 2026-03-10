@@ -37,10 +37,12 @@ class PointerOverlayPresetPanelView(
     private var onCloseClick: (() -> Unit)? = null
     private var onAddCurrentClick: (() -> Unit)? = null
     private var onDeleteClick: ((String) -> Unit)? = null
+    private var onUpdateClick: ((String) -> Unit)? = null
     private var onLoadClick: ((String) -> Unit)? = null
     private var onRenameClick: ((PresetEntry) -> Unit)? = null
 
     private val deleteBtn: Button
+    private val updateBtn: Button
     private val loadBtn: Button
 
     init {
@@ -74,8 +76,17 @@ class PointerOverlayPresetPanelView(
         ) {
             selectedPresetId?.let { onDeleteClick?.invoke(it) }
         }.apply {
-            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-                rightMargin = dp(10)
+            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
+        }
+
+        updateBtn = actionButton(
+            text = context.getString(R.string.preset_update),
+            fillColor = Color.parseColor("#5B5CE6")
+        ) {
+            selectedPresetId?.let { onUpdateClick?.invoke(it) }
+        }.apply {
+            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(10)
             }
         }
 
@@ -85,10 +96,13 @@ class PointerOverlayPresetPanelView(
         ) {
             selectedPresetId?.let { onLoadClick?.invoke(it) }
         }.apply {
-            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 2f).apply {
+                leftMargin = dp(10)
+            }
         }
 
         buttons.addView(deleteBtn)
+        buttons.addView(updateBtn)
         buttons.addView(loadBtn)
         addView(buttons)
         syncActionButtons()
@@ -104,6 +118,10 @@ class PointerOverlayPresetPanelView(
 
     fun setOnDeleteClick(block: (String) -> Unit) {
         onDeleteClick = block
+    }
+
+    fun setOnUpdateClick(block: (String) -> Unit) {
+        onUpdateClick = block
     }
 
     fun setOnLoadClick(block: (String) -> Unit) {
@@ -300,6 +318,8 @@ class PointerOverlayPresetPanelView(
         val enabled = selectedPresetId != null
         deleteBtn.isEnabled = enabled
         deleteBtn.alpha = if (enabled) 1f else 0.45f
+        updateBtn.isEnabled = enabled
+        updateBtn.alpha = if (enabled) 1f else 0.45f
         loadBtn.isEnabled = enabled
         loadBtn.alpha = if (enabled) 1f else 0.45f
     }

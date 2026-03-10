@@ -117,6 +117,41 @@ object PresetStore {
         return deleted
     }
 
+    suspend fun updatePresetPoints(
+        context: Context,
+        presetId: String,
+        sourcePoints: List<HighlightingPoint>
+    ): Boolean {
+        var updated = false
+        context.presetDataStore.edit { prefs ->
+            val current = decodeEntries(prefs[KEY_PRESETS].orEmpty())
+            val index = current.indexOfFirst { it.id == presetId }
+            if (index < 0) return@edit
+
+            val nextPoints = sourcePoints
+                .sortedBy { it.index }
+                .map { point ->
+                    PresetPoint(
+                        index = point.index,
+                        actionType = point.actionType,
+                        x = point.x,
+                        y = point.y,
+                        dragToX = point.dragToX,
+                        dragToY = point.dragToY
+                    )
+                }
+
+            val next = current.toMutableList()
+            next[index] = next[index].copy(points = nextPoints)
+            val sorted = sortEntries(next)
+            val encoded = json.encodeToString(listSer, sorted)
+            prefs[KEY_PRESETS] = encoded
+            updateCache(encoded, sorted)
+            updated = true
+        }
+        return updated
+    }
+
     private fun decodeEntries(raw: String): List<PresetEntry> {
         if (raw.isBlank()) {
             cachedRaw = ""

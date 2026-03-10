@@ -368,6 +368,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         presetPanel.setOnDeleteClick(block)
     }
 
+    fun setOnPresetUpdateClick(block: (String) -> Unit) {
+        presetPanel.setOnUpdateClick(block)
+    }
+
     fun setOnPresetLoadClick(block: (String) -> Unit) {
         presetPanel.setOnLoadClick(block)
     }

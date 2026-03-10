@@ -233,6 +233,24 @@ class PointerOverlayController(private val app: Context) {
                 }
             }
 
+            setOnPresetUpdateClick { presetId ->
+                val preset = latestPresets.firstOrNull { it.id == presetId } ?: return@setOnPresetUpdateClick
+                showConfirmationDialog(
+                    title = app.getString(R.string.preset_update_title),
+                    message = app.getString(R.string.preset_update_message),
+                    confirmText = app.getString(R.string.preset_update),
+                    cancelText = app.getString(R.string.dialog_cancel)
+                ) {
+                    scope.launch {
+                        ensurePointsLoaded()
+                        if (PresetStore.updatePresetPoints(app, preset.id, latestPoints)) {
+                            root?.setSelectedPresetId(preset.id)
+                            toast(app.getString(R.string.preset_updated))
+                        }
+                    }
+                }
+            }
+
             setOnPresetLoadClick { presetId ->
                 val preset = latestPresets.firstOrNull { it.id == presetId } ?: return@setOnPresetLoadClick
                 scope.launch {
