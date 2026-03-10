@@ -16,6 +16,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.PresetEntry
+import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -229,6 +230,8 @@ class PointerOverlayPresetPanelView(
 
     private fun buildPresetItem(preset: PresetEntry): View {
         val selected = preset.id == selectedPresetId
+        val dragCount = preset.points.count { it.actionType == ACTION_TYPE_DRAG }
+        val tapCount = preset.points.size - dragCount
         return LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -272,7 +275,7 @@ class PointerOverlayPresetPanelView(
             )
             addView(
                 TextView(context).apply {
-                    text = context.getString(R.string.preset_count, preset.points.size)
+                    text = context.getString(R.string.preset_count, tapCount, dragCount)
                     setTextColor(Color.parseColor("#D7D7D7"))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
