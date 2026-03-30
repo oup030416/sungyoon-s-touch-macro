@@ -5,9 +5,29 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
-val appVersionName = "1.08"
-val devVersionName = "1.17"
-val devVersionCode = 13
+import java.util.Properties
+
+val appVersionName = "1.09"
+val devVersionName = "1.18"
+val devVersionCode = 14
+
+val localProperties = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) {
+        file.inputStream().use(::load)
+    }
+}
+
+val releaseStoreFile = localProperties.getProperty("release.storeFile")
+val releaseStorePassword = localProperties.getProperty("release.storePassword")
+val releaseKeyAlias = localProperties.getProperty("release.keyAlias")
+val releaseKeyPassword = localProperties.getProperty("release.keyPassword")
+val hasReleaseSigning = listOf(
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.sungyoon.helper"
@@ -24,6 +44,25 @@ android {
         buildConfigField("String", "APP_VERSION_NAME", "\"$appVersionName\"")
         buildConfigField("String", "DEV_VERSION_NAME", "\"$devVersionName\"")
         buildConfigField("int", "DEV_VERSION_CODE", devVersionCode.toString())
+    }
+
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("release") {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     buildFeatures {
