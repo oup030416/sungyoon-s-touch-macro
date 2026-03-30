@@ -250,11 +250,11 @@ object AppUpdateManager {
     }
 
     private fun buildFileName(info: AppUpdateInfo): String {
-        val sanitizedName = info.versionName
-            .replace(Regex("""[^0-9A-Za-z._-]+"""), "_")
-            .trim('_')
-            .ifBlank { "latest" }
-        return "sungyoon-touch-macro-$sanitizedName-${info.versionCode}.apk"
+        val versionName = info.versionName
+            .replace(Regex("""[\\/:*?"<>|]"""), "")
+            .trim()
+            .ifBlank { "최신" }
+        return "성윤 터치매크로 v$versionName.apk"
     }
 
     private fun prefs(context: Context) =
