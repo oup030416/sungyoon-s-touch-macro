@@ -1,11 +1,12 @@
 package com.sungyoon.helper.update
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -25,34 +26,24 @@ object AppUpdateManager {
 
     fun checkForUpdates(
         activity: Activity,
-        onResult: (AppUpdateInfo?) -> Unit
+        onResult: (AppUpdateCheckResult) -> Unit
     ) {
+        if (!isNetworkAvailable(activity)) {
+            onResult(AppUpdateCheckResult.Offline)
+            return
+        }
+
         Thread {
             val info = AppUpdateChecker.fetchLatestRelease()
             activity.runOnUiThread {
-                onResult(info?.takeIf { it.versionCode > BuildConfig.DEV_VERSION_CODE })
+                when {
+                    info == null -> onResult(AppUpdateCheckResult.Error)
+                    info.versionCode > BuildConfig.DEV_VERSION_CODE ->
+                        onResult(AppUpdateCheckResult.UpdateAvailable(info))
+                    else -> onResult(AppUpdateCheckResult.UpToDate(info))
+                }
             }
         }.start()
-    }
-
-    fun showUpdateDialog(activity: Activity, info: AppUpdateInfo) {
-        val notes = info.releaseNotes.ifBlank {
-            activity.getString(R.string.update_dialog_notes_empty)
-        }
-        val message = activity.getString(
-            R.string.update_dialog_message,
-            info.versionName,
-            notes
-        )
-
-        AlertDialog.Builder(activity)
-            .setTitle(R.string.update_dialog_title)
-            .setMessage(message)
-            .setNegativeButton(R.string.update_dialog_later, null)
-            .setPositiveButton(R.string.update_dialog_confirm) { _, _ ->
-                enqueueDownload(activity, info)
-            }
-            .show()
     }
 
     fun enqueueDownload(context: Context, info: AppUpdateInfo) {
@@ -186,6 +177,14 @@ object AppUpdateManager {
     private fun canRequestPackageInstalls(context: Context): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
             context.packageManager.canRequestPackageInstalls()
+    }
+
+    private fun isNetworkAvailable(context: Context): Boolean {
+        val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+        val network = manager.activeNetwork ?: return false
+        val capabilities = manager.getNetworkCapabilities(network) ?: return false
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
     private fun buildFileName(info: AppUpdateInfo): String {
