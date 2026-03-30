@@ -114,7 +114,7 @@
     <string name="update_status_waiting_network">네트워크 연결을 기다리는 중입니다.</string>
     <string name="update_status_waiting_wifi">Wi‑Fi 연결을 기다리는 중입니다.</string>
     <string name="update_status_paused">다운로드가 잠시 중단되었습니다.</string>
-    <string name="update_status_preparing_install">다운로드 완료, 설치 준비 중입니다.</string>
+    <string name="update_status_preparing_install">스마트폰 상단에서 스크롤 해서 [업데이트 다운로드] 알림을 클릭해 업데이트를 완료하세요.</string>
     <string name="update_status_permission_required">설치 권한 허용이 필요합니다.</string>
     <string name="update_status_offline">인터넷 연결을 확인하세요.</string>
     <string name="update_status_error">최신 버전을 불러오지 못했습니다.</string>
