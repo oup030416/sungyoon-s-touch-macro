@@ -294,10 +294,18 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 }
                 visibility = View.GONE
                 setOnClickListener {
-                    latestUpdateInfo?.let {
-                        AppUpdateManager.enqueueDownload(context, it)
-                        resetDownloadSpeed()
-                        refreshUpdateProgress()
+                    when (val state = updateUiState) {
+                        is UpdateUiState.AwaitingInstallPermission -> {
+                            AppUpdateManager.openInstallPermissionSettings(context)
+                        }
+
+                        else -> {
+                            latestUpdateInfo?.let {
+                                AppUpdateManager.enqueueDownload(context, it)
+                                resetDownloadSpeed()
+                                refreshUpdateProgress()
+                            }
+                        }
                     }
                 }
             }
@@ -345,6 +353,14 @@ class MainScreenView(context: Context) : FrameLayout(context) {
     }
 
     fun refreshUpdateProgress() {
+        if (AppUpdateManager.isAwaitingInstallPermission(context)) {
+            resetDownloadSpeed()
+            updateUiState = UpdateUiState.AwaitingInstallPermission
+            renderUpdateState()
+            stopProgressPolling()
+            return
+        }
+
         val progress = AppUpdateManager.getDownloadProgress(context)
         if (progress != null) {
             if (updateUiState !is UpdateUiState.Downloading) {
@@ -438,6 +454,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateProgressBar.visibility = View.GONE
                 updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.VISIBLE
+                installUpdateButton.text = context.getString(R.string.update_install_button)
                 checkUpdateButton.isEnabled = true
             }
 
@@ -455,6 +472,18 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 )
                 installUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = false
+            }
+
+            UpdateUiState.AwaitingInstallPermission -> {
+                updateStatusValue.setTextColor(negative)
+                updateStatusValue.text = context.getString(R.string.update_status_permission_required)
+                updateDetailValue.visibility = View.VISIBLE
+                updateDetailValue.text = context.getString(R.string.update_permission_required_detail)
+                updateProgressBar.visibility = View.GONE
+                updateProgressValue.visibility = View.GONE
+                installUpdateButton.visibility = View.VISIBLE
+                installUpdateButton.text = context.getString(R.string.update_permission_button)
+                checkUpdateButton.isEnabled = true
             }
 
             UpdateUiState.Offline -> {
@@ -597,6 +626,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
         data object Checking : UpdateUiState
         data object Offline : UpdateUiState
         data object Error : UpdateUiState
+        data object AwaitingInstallPermission : UpdateUiState
         data class UpToDate(val versionName: String) : UpdateUiState
         data class Outdated(val info: AppUpdateInfo) : UpdateUiState
         data class Downloading(val progress: AppUpdateDownloadProgress) : UpdateUiState

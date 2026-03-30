@@ -116,6 +116,15 @@ object AppUpdateManager {
         }
     }
 
+    fun isAwaitingInstallPermission(context: Context): Boolean {
+        return prefs(context).getBoolean(KEY_AWAITING_INSTALL_PERMISSION, false) &&
+            !canRequestPackageInstalls(context)
+    }
+
+    fun openInstallPermissionSettings(context: Context) {
+        openUnknownSourcesSettings(context)
+    }
+
     fun getDownloadProgress(context: Context): AppUpdateDownloadProgress? {
         val downloadId = prefs(context).getLong(KEY_DOWNLOAD_ID, -1L)
         if (downloadId < 0L) return null

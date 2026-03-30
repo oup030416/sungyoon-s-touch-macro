@@ -114,9 +114,12 @@
     <string name="update_status_waiting_wifi">Wi‑Fi 연결을 기다리는 중입니다.</string>
     <string name="update_status_paused">다운로드가 잠시 중단되었습니다.</string>
     <string name="update_status_preparing_install">다운로드 완료, 설치 준비 중입니다.</string>
+    <string name="update_status_permission_required">설치 권한 허용이 필요합니다.</string>
     <string name="update_status_offline">인터넷 연결을 확인하세요.</string>
     <string name="update_status_error">최신 버전을 불러오지 못했습니다.</string>
     <string name="update_latest_version">최신 버전: %1$s</string>
+    <string name="update_permission_required_detail">새 버전을 설치하려면 갤럭시의 알 수 없는 출처 앱 설치 권한을 허용해야 합니다.</string>
+    <string name="update_permission_button">설치 권한 허용</string>
     <string name="update_progress_percent">%1$d%%</string>
     <string name="update_progress_bytes">%1$s / %2$s</string>
     <string name="update_progress_with_speed">%1$s · %2$s</string>
