@@ -39,12 +39,14 @@ object AppUpdateChecker {
 
         var downloadUrl: String? = null
         var assetName: String? = null
+        var assetSizeBytes = -1L
         for (i in 0 until assets.length()) {
             val asset = assets.optJSONObject(i) ?: continue
             val name = asset.optString("name")
             if (name.endsWith(".apk", ignoreCase = true)) {
                 downloadUrl = asset.optString("browser_download_url")
                 assetName = name
+                assetSizeBytes = asset.optLong("size", -1L)
                 break
             }
         }
@@ -67,7 +69,8 @@ object AppUpdateChecker {
             versionCode = versionCode,
             versionName = versionName,
             downloadUrl = downloadUrl ?: return null,
-            releaseNotes = releaseBody.trim()
+            releaseNotes = releaseBody.trim(),
+            assetSizeBytes = assetSizeBytes.coerceAtLeast(0L)
         )
     }
 

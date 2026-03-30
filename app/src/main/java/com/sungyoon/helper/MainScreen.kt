@@ -4,8 +4,10 @@ import android.app.Activity
 import android.graphics.Color
 import android.content.Context
 import android.graphics.Typeface
+import android.app.DownloadManager
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -47,6 +49,9 @@ class MainScreenView(context: Context) : FrameLayout(context) {
     private var updateUiState: UpdateUiState = UpdateUiState.Idle
     private var latestUpdateInfo: AppUpdateInfo? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+    private var lastProgressBytes = -1L
+    private var lastProgressSampleElapsed = 0L
+    private var lastSpeedBytesPerSecond = -1L
     private val progressPollRunnable = object : Runnable {
         override fun run() {
             val progress = AppUpdateManager.getDownloadProgress(context)
@@ -291,6 +296,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 setOnClickListener {
                     latestUpdateInfo?.let {
                         AppUpdateManager.enqueueDownload(context, it)
+                        resetDownloadSpeed()
                         refreshUpdateProgress()
                     }
                 }
@@ -341,10 +347,15 @@ class MainScreenView(context: Context) : FrameLayout(context) {
     fun refreshUpdateProgress() {
         val progress = AppUpdateManager.getDownloadProgress(context)
         if (progress != null) {
+            if (updateUiState !is UpdateUiState.Downloading) {
+                resetDownloadSpeed()
+            }
+            updateDownloadSpeed(progress)
             updateUiState = UpdateUiState.Downloading(progress)
             renderUpdateState()
             startProgressPolling()
         } else if (updateUiState is UpdateUiState.Downloading) {
+            resetDownloadSpeed()
             updateUiState = latestUpdateInfo?.let { UpdateUiState.Outdated(it) } ?: UpdateUiState.Idle
             renderUpdateState()
             stopProgressPolling()
@@ -431,14 +442,10 @@ class MainScreenView(context: Context) : FrameLayout(context) {
             }
 
             is UpdateUiState.Downloading -> {
-                updateStatusValue.setTextColor(negative)
-                updateStatusValue.text = context.getString(R.string.update_status_downloading)
+                updateStatusValue.setTextColor(resolveDownloadStatusColor(state.progress, negative, neutral))
+                updateStatusValue.text = getDownloadStatusText(state.progress)
                 updateDetailValue.visibility = View.VISIBLE
-                updateDetailValue.text = context.getString(
-                    R.string.update_progress_bytes,
-                    formatMegabytes(state.progress.downloadedBytes),
-                    formatMegabytes(state.progress.totalBytes)
-                )
+                updateDetailValue.text = buildDownloadDetailText(state.progress)
                 updateProgressBar.visibility = View.VISIBLE
                 updateProgressBar.progress = state.progress.percent
                 updateProgressValue.visibility = View.VISIBLE
@@ -481,10 +488,93 @@ class MainScreenView(context: Context) : FrameLayout(context) {
         mainHandler.removeCallbacks(progressPollRunnable)
     }
 
+    private fun updateDownloadSpeed(progress: AppUpdateDownloadProgress) {
+        val now = SystemClock.elapsedRealtime()
+        val deltaBytes = if (lastProgressBytes >= 0L) {
+            progress.downloadedBytes - lastProgressBytes
+        } else {
+            -1L
+        }
+        val deltaTimeMs = if (lastProgressSampleElapsed > 0L) {
+            now - lastProgressSampleElapsed
+        } else {
+            -1L
+        }
+
+        if (deltaBytes > 0L && deltaTimeMs > 0L) {
+            lastSpeedBytesPerSecond = (deltaBytes * 1000L) / deltaTimeMs
+        }
+
+        lastProgressBytes = progress.downloadedBytes
+        lastProgressSampleElapsed = now
+    }
+
+    private fun resetDownloadSpeed() {
+        lastProgressBytes = -1L
+        lastProgressSampleElapsed = 0L
+        lastSpeedBytesPerSecond = -1L
+    }
+
     private fun formatMegabytes(bytes: Long): String {
         if (bytes <= 0L) return "0.0MB"
         val value = bytes / (1024f * 1024f)
         return String.format("%.1fMB", value)
+    }
+
+    private fun formatSpeed(bytesPerSecond: Long): String {
+        if (bytesPerSecond <= 0L) return ""
+        return if (bytesPerSecond >= 1024 * 1024) {
+            String.format("%.1fMB/s", bytesPerSecond / (1024f * 1024f))
+        } else {
+            String.format("%.0fKB/s", bytesPerSecond / 1024f)
+        }
+    }
+
+    private fun buildDownloadDetailText(progress: AppUpdateDownloadProgress): String {
+        val bytesText = context.getString(
+            R.string.update_progress_bytes,
+            formatMegabytes(progress.downloadedBytes),
+            formatMegabytes(progress.totalBytes)
+        )
+        val speedText = formatSpeed(lastSpeedBytesPerSecond)
+        return when {
+            progress.status == DownloadManager.STATUS_RUNNING && speedText.isNotBlank() ->
+                context.getString(R.string.update_progress_with_speed, bytesText, speedText)
+            else -> bytesText
+        }
+    }
+
+    private fun getDownloadStatusText(progress: AppUpdateDownloadProgress): String {
+        return when (progress.status) {
+            DownloadManager.STATUS_PENDING -> context.getString(R.string.update_status_pending)
+            DownloadManager.STATUS_RUNNING -> context.getString(R.string.update_status_downloading)
+            DownloadManager.STATUS_PAUSED -> when (progress.reason) {
+                DownloadManager.PAUSED_WAITING_TO_RETRY ->
+                    context.getString(R.string.update_status_retrying)
+                DownloadManager.PAUSED_WAITING_FOR_NETWORK ->
+                    context.getString(R.string.update_status_waiting_network)
+                DownloadManager.PAUSED_QUEUED_FOR_WIFI ->
+                    context.getString(R.string.update_status_waiting_wifi)
+                DownloadManager.PAUSED_UNKNOWN ->
+                    context.getString(R.string.update_status_paused)
+                else -> context.getString(R.string.update_status_paused)
+            }
+            DownloadManager.STATUS_SUCCESSFUL -> context.getString(R.string.update_status_preparing_install)
+            else -> context.getString(R.string.update_status_downloading)
+        }
+    }
+
+    private fun resolveDownloadStatusColor(
+        progress: AppUpdateDownloadProgress,
+        negative: Int,
+        neutral: Int
+    ): Int {
+        return when (progress.status) {
+            DownloadManager.STATUS_PENDING,
+            DownloadManager.STATUS_PAUSED,
+            DownloadManager.STATUS_SUCCESSFUL -> neutral
+            else -> negative
+        }
     }
 
     private fun resolveColor(attr: Int, fallback: Int): Int {

@@ -23,6 +23,7 @@ object AppUpdateManager {
     private const val KEY_DOWNLOAD_ID = "download_id"
     private const val KEY_FILE_NAME = "file_name"
     private const val KEY_VERSION_CODE = "version_code"
+    private const val KEY_ASSET_SIZE_BYTES = "asset_size_bytes"
     private const val KEY_AWAITING_INSTALL_PERMISSION = "awaiting_install_permission"
 
     fun checkForUpdates(
@@ -77,6 +78,7 @@ object AppUpdateManager {
             .putLong(KEY_DOWNLOAD_ID, downloadId)
             .putString(KEY_FILE_NAME, fileName)
             .putInt(KEY_VERSION_CODE, info.versionCode)
+            .putLong(KEY_ASSET_SIZE_BYTES, info.assetSizeBytes)
             .putBoolean(KEY_AWAITING_INSTALL_PERMISSION, false)
             .apply()
         toast(context, context.getString(R.string.update_download_started))
@@ -127,23 +129,33 @@ object AppUpdateManager {
             val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
             if (status != DownloadManager.STATUS_PENDING &&
                 status != DownloadManager.STATUS_PAUSED &&
-                status != DownloadManager.STATUS_RUNNING
+                status != DownloadManager.STATUS_RUNNING &&
+                status != DownloadManager.STATUS_SUCCESSFUL
             ) {
                 return null
             }
 
             val downloadedBytes = it.getLongCompat(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
-            val totalBytes = it.getLongCompat(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
-            val percent = if (downloadedBytes <= 0L || totalBytes <= 0L) {
+            val expectedBytes = prefs(context).getLong(KEY_ASSET_SIZE_BYTES, -1L)
+            val managerTotalBytes = it.getLongCompat(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+            val totalBytes = maxOf(managerTotalBytes, expectedBytes).coerceAtLeast(0L)
+            val reason = it.getIntCompat(DownloadManager.COLUMN_REASON)
+            val normalizedDownloadedBytes = when {
+                status == DownloadManager.STATUS_SUCCESSFUL && totalBytes > 0L -> totalBytes
+                else -> downloadedBytes.coerceAtLeast(0L)
+            }
+            val percent = if (normalizedDownloadedBytes <= 0L || totalBytes <= 0L) {
                 0
             } else {
-                ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
+                ((normalizedDownloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
             }
 
             return AppUpdateDownloadProgress(
                 percent = percent,
-                downloadedBytes = downloadedBytes.coerceAtLeast(0L),
-                totalBytes = totalBytes.coerceAtLeast(0L)
+                downloadedBytes = normalizedDownloadedBytes,
+                totalBytes = totalBytes,
+                status = status,
+                reason = reason,
             )
         }
     }
@@ -243,5 +255,11 @@ object AppUpdateManager {
         val index = getColumnIndex(columnName)
         if (index < 0 || isNull(index)) return -1L
         return getLong(index)
+    }
+
+    private fun Cursor.getIntCompat(columnName: String): Int {
+        val index = getColumnIndex(columnName)
+        if (index < 0 || isNull(index)) return 0
+        return getInt(index)
     }
 }
