@@ -54,16 +54,9 @@ class MainScreenView(context: Context) : FrameLayout(context) {
     private var lastSpeedBytesPerSecond = -1L
     private val progressPollRunnable = object : Runnable {
         override fun run() {
-            val progress = AppUpdateManager.getDownloadProgress(context)
-            if (progress != null) {
-                updateUiState = UpdateUiState.Downloading(progress)
-                renderUpdateState()
+            refreshUpdateProgress()
+            if (updateUiState is UpdateUiState.Downloading) {
                 mainHandler.postDelayed(this, 500L)
-            } else {
-                if (updateUiState is UpdateUiState.Downloading) {
-                    updateUiState = latestUpdateInfo?.let { UpdateUiState.Outdated(it) } ?: UpdateUiState.Idle
-                    renderUpdateState()
-                }
             }
         }
     }

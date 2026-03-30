@@ -101,7 +101,6 @@ object AppUpdateManager {
             prefs.edit().putBoolean(KEY_AWAITING_INSTALL_PERMISSION, false).apply()
         } else {
             prefs.edit().putBoolean(KEY_AWAITING_INSTALL_PERMISSION, true).apply()
-            openUnknownSourcesSettings(context)
         }
     }
 
