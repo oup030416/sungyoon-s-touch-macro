@@ -7,9 +7,9 @@ plugins {
 
 import java.util.Properties
 
-val appVersionName = "1.08"
-val devVersionName = "1.17"
-val devVersionCode = 13
+val appVersionName = "1.07"
+val devVersionName = "1.16"
+val devVersionCode = 12
 
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
