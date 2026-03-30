@@ -512,7 +512,6 @@ class PointerOverlayReservationPanelView(
         bodyScrollView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, desiredBodyHeight).apply {
             topMargin = dp(10)
         }
-        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
     }
 
     private fun measureRegularFixedHeight(): Int {
