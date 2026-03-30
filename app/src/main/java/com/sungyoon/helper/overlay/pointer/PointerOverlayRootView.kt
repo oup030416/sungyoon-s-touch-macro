@@ -15,6 +15,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
+import android.widget.ScrollView
 import androidx.core.view.children
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.HighlightingPoint
@@ -73,6 +74,23 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         context = context,
         dp = ::dp
     )
+
+    private val controlPanelScrollHost = ScrollView(context).apply {
+        isFillViewport = false
+        overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        isVerticalScrollBarEnabled = false
+        layoutParams = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT
+        )
+        addView(
+            controls.controlPanel,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+    }
 
     // ✅ 예약 패널(포인터 관리 패널을 덮음)
     private val reservationPanel: PointerOverlayReservationPanelView =
@@ -188,7 +206,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         setBackgroundColor(Color.parseColor("#66000000"))
 
         addView(pointerLayer)
-        addView(controls.controlPanel)
+        addView(controlPanelScrollHost)
 
         // ✅ controlPanel 위에 예약 패널을 올려 "완전히 가리기"
         addView(reservationPanel)
@@ -229,11 +247,12 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         // controlPanel 레이아웃이 바뀌면(회전/리사이즈) 예약 패널도 즉시 동기화
         controls.controlPanel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            updateControlPanelViewport()
             if (reservationPanel.visibility == View.VISIBLE) {
-                syncReservationPanelLayout(matchHeightToControlPanel = true)
+                syncReservationPanelLayout()
             }
             if (presetPanel.visibility == View.VISIBLE) {
-                syncPresetPanelLayout(matchHeightToControlPanel = true)
+                syncPresetPanelLayout()
             }
         }
 
@@ -274,7 +293,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
             // ✅ 예약 패널이 떠있을 땐 예약 패널도 "패널 영역"으로 간주
             val touchedPanel =
-                isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.controlPanel) ||
+                isTouchInsideViewRaw(ev.rawX, ev.rawY, controlPanelScrollHost) ||
                         (reservationPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, reservationPanel)) ||
                         (presetPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, presetPanel)) ||
                         (modalHost.isShowing() && isTouchInsideViewRaw(ev.rawX, ev.rawY, modalHost))
@@ -428,7 +447,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
             if (!panelVisible) setControlPanelVisible(true)
             closePresetPanel()
-            syncReservationPanelLayout(matchHeightToControlPanel = true)
+            syncReservationPanelLayout()
 
             reservationPanel.visibility = View.VISIBLE
             reservationPanel.alpha = 0f
@@ -463,7 +482,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         if (visible) {
             if (!panelVisible) setControlPanelVisible(true)
             closeReservationPanel()
-            syncPresetPanelLayout(matchHeightToControlPanel = true)
+            syncPresetPanelLayout()
 
             presetPanel.visibility = View.VISIBLE
             presetPanel.alpha = 0f
@@ -491,24 +510,24 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     }
 
 
-    private fun syncReservationPanelLayout(matchHeightToControlPanel: Boolean) {
-        syncOverlayPanelLayout(reservationPanel, matchHeightToControlPanel)
+    private fun syncReservationPanelLayout() {
+        syncOverlayPanelLayout(reservationPanel)
     }
 
-    private fun syncPresetPanelLayout(matchHeightToControlPanel: Boolean) {
-        syncOverlayPanelLayout(presetPanel, matchHeightToControlPanel)
+    private fun syncPresetPanelLayout() {
+        syncOverlayPanelLayout(presetPanel)
     }
 
-    private fun syncOverlayPanelLayout(panel: View, matchHeightToControlPanel: Boolean) {
-        val src = controls.controlPanel.layoutParams as? FrameLayout.LayoutParams ?: return
-
-        val desiredH = if (matchHeightToControlPanel && controls.controlPanel.height > 0) {
-            controls.controlPanel.height
-        } else {
-            src.height
+    private fun syncOverlayPanelLayout(panel: View) {
+        val src = controlPanelScrollHost.layoutParams as? FrameLayout.LayoutParams ?: return
+        val maxViewportHeight = resolvePanelViewportHeight()
+        if (panel is PointerOverlayReservationPanelView) {
+            panel.setMaxViewportHeight(maxViewportHeight)
+        } else if (panel is PointerOverlayPresetPanelView) {
+            panel.setMaxViewportHeight(maxViewportHeight)
         }
 
-        val lp = FrameLayout.LayoutParams(src.width, desiredH).apply {
+        val lp = FrameLayout.LayoutParams(src.width, maxViewportHeight).apply {
             gravity = src.gravity
             leftMargin = src.leftMargin
             topMargin = src.topMargin
@@ -516,10 +535,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             bottomMargin = src.bottomMargin
         }
         panel.layoutParams = lp
-
-        if (matchHeightToControlPanel && controls.controlPanel.height > 0) {
-            panel.minimumHeight = controls.controlPanel.height
-        }
     }
 
     fun setPointerSizeLevel(level: Int) {
@@ -658,11 +673,11 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         panelVisible = visible
 
         if (visible) {
-            controls.controlPanel.visibility = View.VISIBLE
-            controls.controlPanel.alpha = 0f
-            controls.controlPanel.scaleX = 0.96f
-            controls.controlPanel.scaleY = 0.96f
-            controls.controlPanel.animate()
+            controlPanelScrollHost.visibility = View.VISIBLE
+            controlPanelScrollHost.alpha = 0f
+            controlPanelScrollHost.scaleX = 0.96f
+            controlPanelScrollHost.scaleY = 0.96f
+            controlPanelScrollHost.animate()
                 .alpha(1f).scaleX(1f).scaleY(1f)
                 .setDuration(130L)
                 .start()
@@ -691,11 +706,11 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 requestIme(false)
             }
 
-            controls.controlPanel.animate().cancel()
-            controls.controlPanel.animate()
+            controlPanelScrollHost.animate().cancel()
+            controlPanelScrollHost.animate()
                 .alpha(0f).scaleX(0.96f).scaleY(0.96f)
                 .setDuration(120L)
-                .withEndAction { controls.controlPanel.visibility = View.GONE }
+                .withEndAction { controlPanelScrollHost.visibility = View.GONE }
                 .start()
 
             miniPanelToggleBtn.visibility = View.VISIBLE
@@ -1733,7 +1748,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             rightMargin = dp(12)
             topMargin = dp(12)
         }
-        controls.controlPanel.layoutParams = panelLp
+        controlPanelScrollHost.layoutParams = panelLp
+        updateControlPanelViewport()
+        syncReservationPanelLayout()
+        syncPresetPanelLayout()
 
         val miniLp = FrameLayout.LayoutParams(dp(44), dp(44)).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1744,6 +1762,47 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         controls.subtitleText.visibility = if (landscape) View.GONE else View.VISIBLE
         controls.hintText.visibility = if (landscape) View.GONE else View.VISIBLE
+    }
+
+    private fun updateControlPanelViewport() {
+        val hostLp = controlPanelScrollHost.layoutParams as? FrameLayout.LayoutParams ?: return
+        val availableHeight = resolvePanelViewportHeight()
+        if (availableHeight <= 0) return
+        val widthHint = if (hostLp.width > 0) {
+            hostLp.width
+        } else {
+            (width - hostLp.leftMargin - hostLp.rightMargin).coerceAtLeast(dp(240))
+        }
+        val contentHeight = measureDesiredHeight(controls.controlPanel, widthHint)
+        val compact = contentHeight > availableHeight
+        val desiredHeight = if (compact) availableHeight else LayoutParams.WRAP_CONTENT
+        if (hostLp.height != desiredHeight) {
+            controlPanelScrollHost.layoutParams = FrameLayout.LayoutParams(hostLp.width, desiredHeight).apply {
+                gravity = hostLp.gravity
+                leftMargin = hostLp.leftMargin
+                rightMargin = hostLp.rightMargin
+                topMargin = hostLp.topMargin
+                bottomMargin = hostLp.bottomMargin
+            }
+        }
+        controlPanelScrollHost.isFillViewport = compact
+    }
+
+    private fun resolvePanelViewportHeight(): Int {
+        val hostLp = controlPanelScrollHost.layoutParams as? FrameLayout.LayoutParams
+        val topMargin = hostLp?.topMargin ?: dp(12)
+        val bottomPadding = dp(12)
+        return (height - topMargin - bottomPadding).coerceAtLeast(dp(220))
+    }
+
+    private fun measureDesiredHeight(view: View, widthPx: Int): Int {
+        val widthSpec = View.MeasureSpec.makeMeasureSpec(
+            widthPx.coerceAtLeast(1),
+            View.MeasureSpec.EXACTLY
+        )
+        val heightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        view.measure(widthSpec, heightSpec)
+        return view.measuredHeight
     }
 
     private fun dp(v: Int): Int = (v * density).roundToInt()

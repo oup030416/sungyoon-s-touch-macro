@@ -14,6 +14,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import android.view.ViewGroup
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.PresetEntry
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
@@ -44,6 +45,21 @@ class PointerOverlayPresetPanelView(
     private val deleteBtn: Button
     private val updateBtn: Button
     private val loadBtn: Button
+    private lateinit var headerRowView: View
+    private lateinit var bodyContentView: LinearLayout
+    private lateinit var bodyScrollView: ScrollView
+    private lateinit var footerRowView: View
+    private lateinit var addCurrentBtn: Button
+    private val compactScrollView = ScrollView(context).apply {
+        isFillViewport = true
+        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
+    }
+    private val compactContainer = LinearLayout(context).apply {
+        orientation = VERTICAL
+        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+    }
+    private var compactScrollMode = false
+    private var maxViewportHeightPx = 0
 
     init {
         orientation = VERTICAL
@@ -51,7 +67,6 @@ class PointerOverlayPresetPanelView(
         background = PointerOverlayDrawables.reservationCardBg(dp)
         isClickable = true
         isFocusable = false
-        minimumHeight = dp(560)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             elevation = dp(8).toFloat()
@@ -59,10 +74,12 @@ class PointerOverlayPresetPanelView(
             clipToOutline = true
         }
 
-        addView(buildHeader())
-        addView(buildScrollableContent())
+        compactScrollView.addView(compactContainer)
+        headerRowView = buildHeader()
+        bodyContentView = buildBodyContent()
+        bodyScrollView = buildBodyScrollView()
 
-        val buttons = LinearLayout(context).apply {
+        footerRowView = LinearLayout(context).apply {
             orientation = HORIZONTAL
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10)
@@ -101,11 +118,12 @@ class PointerOverlayPresetPanelView(
             }
         }
 
-        buttons.addView(deleteBtn)
-        buttons.addView(updateBtn)
-        buttons.addView(loadBtn)
-        addView(buttons)
+        (footerRowView as LinearLayout).addView(deleteBtn)
+        (footerRowView as LinearLayout).addView(updateBtn)
+        (footerRowView as LinearLayout).addView(loadBtn)
+        rebuildLayout(compact = false)
         syncActionButtons()
+        addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> post { updateAdaptiveLayoutMode() } }
     }
 
     fun setOnCloseClick(block: () -> Unit) {
@@ -147,6 +165,11 @@ class PointerOverlayPresetPanelView(
         renderList()
     }
 
+    fun setMaxViewportHeight(px: Int) {
+        maxViewportHeightPx = px.coerceAtLeast(0)
+        post { updateAdaptiveLayoutMode() }
+    }
+
     private fun buildHeader(): View {
         val row = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -185,23 +208,23 @@ class PointerOverlayPresetPanelView(
         return row
     }
 
-    private fun buildScrollableContent(): View {
-        val scroll = ScrollView(context).apply {
+    private fun buildBodyScrollView(): ScrollView {
+        return ScrollView(context).apply {
             isFillViewport = true
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply {
                 topMargin = dp(10)
             }
+            addView(bodyContentView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
+    }
 
-        val content = LinearLayout(context).apply {
+    private fun buildBodyContent(): LinearLayout {
+        return LinearLayout(context).apply {
             orientation = VERTICAL
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
             setPadding(0, 0, 0, dp(8))
-        }
-
-        content.addView(listContainer)
-        content.addView(
-            actionButton(
+            addView(listContainer)
+            addCurrentBtn = actionButton(
                 text = context.getString(R.string.preset_add_current),
                 fillColor = Color.parseColor("#4A4A4A")
             ) {
@@ -211,10 +234,8 @@ class PointerOverlayPresetPanelView(
                     topMargin = dp(12)
                 }
             }
-        )
-
-        scroll.addView(content, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        return scroll
+            addView(addCurrentBtn)
+        }
     }
 
     private fun renderList() {
@@ -345,5 +366,77 @@ class PointerOverlayPresetPanelView(
             setPadding(dp(12), dp(12), dp(12), dp(12))
             setOnClickListener { onClick() }
         }
+    }
+
+    private fun updateAdaptiveLayoutMode() {
+        if (maxViewportHeightPx <= 0) return
+        val widthHint = (width - paddingLeft - paddingRight).takeIf { it > 0 }
+            ?: (resources.displayMetrics.widthPixels - dp(24))
+        val shouldCompact = measureContentHeight(widthHint) > maxViewportHeightPx
+        if (shouldCompact != compactScrollMode) {
+            rebuildLayout(shouldCompact)
+        }
+    }
+
+    private fun rebuildLayout(compact: Boolean) {
+        compactScrollMode = compact
+        removeAllViews()
+        detachFromParent(headerRowView)
+        detachFromParent(bodyContentView)
+        detachFromParent(bodyScrollView)
+        detachFromParent(footerRowView)
+        detachFromParent(compactScrollView)
+        compactContainer.removeAllViews()
+
+        if (compact) {
+            headerRowView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+            bodyContentView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+            footerRowView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+            compactContainer.addView(headerRowView)
+            compactContainer.addView(bodyContentView)
+            compactContainer.addView(footerRowView)
+            addView(compactScrollView)
+        } else {
+            bodyScrollView.removeAllViews()
+            bodyContentView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+            bodyScrollView.addView(bodyContentView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            headerRowView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+            bodyScrollView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply {
+                topMargin = dp(10)
+            }
+            footerRowView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                topMargin = dp(10)
+            }
+            addView(headerRowView)
+            addView(bodyScrollView)
+            addView(footerRowView)
+        }
+        requestLayout()
+    }
+
+    private fun measureContentHeight(widthHint: Int): Int {
+        val childWidthSpec = View.MeasureSpec.makeMeasureSpec(
+            widthHint.coerceAtLeast(1),
+            View.MeasureSpec.EXACTLY
+        )
+        val childHeightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        headerRowView.measure(childWidthSpec, childHeightSpec)
+        bodyContentView.measure(childWidthSpec, childHeightSpec)
+        footerRowView.measure(childWidthSpec, childHeightSpec)
+        return paddingTop +
+            paddingBottom +
+            headerRowView.measuredHeight +
+            dp(10) +
+            bodyContentView.measuredHeight +
+            dp(10) +
+            footerRowView.measuredHeight
+    }
+
+    private fun detachFromParent(view: View) {
+        (view.parent as? ViewGroup)?.removeView(view)
     }
 }
