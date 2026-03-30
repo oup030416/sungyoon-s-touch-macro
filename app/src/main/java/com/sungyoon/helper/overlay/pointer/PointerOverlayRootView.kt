@@ -527,7 +527,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             panel.setMaxViewportHeight(maxViewportHeight)
         }
 
-        val lp = FrameLayout.LayoutParams(src.width, maxViewportHeight).apply {
+        val lp = FrameLayout.LayoutParams(src.width, LayoutParams.WRAP_CONTENT).apply {
             gravity = src.gravity
             leftMargin = src.leftMargin
             topMargin = src.topMargin

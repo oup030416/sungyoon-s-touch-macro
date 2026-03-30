@@ -72,6 +72,7 @@ class PointerOverlayReservationPanelView(
     }
     private var compactScrollMode = false
     private var maxViewportHeightPx = 0
+    private val preferredPanelHeightPx = dp(560)
 
 
     // --- Status UI (Ring + center texts)
@@ -452,6 +453,8 @@ class PointerOverlayReservationPanelView(
         val shouldCompact = measureContentHeight(widthHint) > maxViewportHeightPx
         if (shouldCompact != compactScrollMode) {
             rebuildLayout(shouldCompact)
+        } else if (!shouldCompact) {
+            applyPreferredRegularHeight()
         }
     }
 
@@ -466,6 +469,10 @@ class PointerOverlayReservationPanelView(
         compactContainer.removeAllViews()
 
         if (compact) {
+            compactScrollView.layoutParams = LayoutParams(
+                LayoutParams.MATCH_PARENT,
+                maxViewportHeightPx
+            )
             headerRowView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
             bodyContentView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                 topMargin = dp(10)
@@ -491,8 +498,34 @@ class PointerOverlayReservationPanelView(
             addView(headerRowView)
             addView(bodyScrollView)
             addView(footerRowView)
+            applyPreferredRegularHeight()
         }
         requestLayout()
+    }
+
+    private fun applyPreferredRegularHeight() {
+        val targetPanelHeight = min(preferredPanelHeightPx, maxViewportHeightPx)
+        val fixedHeight = measureRegularFixedHeight()
+        val desiredBodyHeight = (targetPanelHeight - fixedHeight).coerceAtLeast(dp(120))
+        val current = bodyScrollView.layoutParams as? LayoutParams
+        if (current?.height == desiredBodyHeight) return
+        bodyScrollView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, desiredBodyHeight).apply {
+            topMargin = dp(10)
+        }
+        layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
+    }
+
+    private fun measureRegularFixedHeight(): Int {
+        val widthHint = (width - paddingLeft - paddingRight).takeIf { it > 0 }
+            ?: (resources.displayMetrics.widthPixels - dp(24))
+        val childWidthSpec = View.MeasureSpec.makeMeasureSpec(
+            widthHint.coerceAtLeast(1),
+            View.MeasureSpec.EXACTLY
+        )
+        val childHeightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        headerRowView.measure(childWidthSpec, childHeightSpec)
+        footerRowView.measure(childWidthSpec, childHeightSpec)
+        return paddingTop + paddingBottom + headerRowView.measuredHeight + footerRowView.measuredHeight + dp(10) + dp(10)
     }
 
     private fun measureContentHeight(widthHint: Int): Int {
