@@ -73,6 +73,7 @@ class PointerOverlayReservationPanelView(
     private var compactScrollMode = false
     private var maxViewportHeightPx = 0
     private val preferredPanelHeightPx = dp(560)
+    private val compactBottomPaddingPx = dp(28)
 
 
     // --- Status UI (Ring + center texts)
@@ -469,6 +470,7 @@ class PointerOverlayReservationPanelView(
         compactContainer.removeAllViews()
 
         if (compact) {
+            compactContainer.setPadding(0, 0, 0, compactBottomPaddingPx)
             compactScrollView.layoutParams = LayoutParams(
                 LayoutParams.MATCH_PARENT,
                 maxViewportHeightPx
@@ -485,6 +487,7 @@ class PointerOverlayReservationPanelView(
             compactContainer.addView(footerRowView)
             addView(compactScrollView)
         } else {
+            compactContainer.setPadding(0, 0, 0, 0)
             bodyScrollView.removeAllViews()
             bodyContentView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
             bodyScrollView.addView(bodyContentView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
