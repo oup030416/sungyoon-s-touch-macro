@@ -44,6 +44,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
     private val updateProgressValue: TextView
     private val checkUpdateButton: Button
     private val installUpdateButton: Button
+    private val cancelUpdateButton: Button
 
     private var didAutoNavigateOnce = false
     private var updateUiState: UpdateUiState = UpdateUiState.Idle
@@ -304,6 +305,28 @@ class MainScreenView(context: Context) : FrameLayout(context) {
             }
             inner.addView(installUpdateButton)
 
+            cancelUpdateButton = Button(context).apply {
+                text = context.getString(R.string.update_cancel_button)
+                isAllCaps = false
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                ).apply {
+                    topMargin = dp(8)
+                }
+                visibility = View.GONE
+                setOnClickListener {
+                    AppUpdateManager.cancelPendingUpdate(context)
+                    latestUpdateInfo = null
+                    resetDownloadSpeed()
+                    updateUiState = UpdateUiState.Idle
+                    renderUpdateState()
+                    stopProgressPolling()
+                    toast(context, context.getString(R.string.update_cancelled))
+                }
+            }
+            inner.addView(cancelUpdateButton)
+
             addView(inner)
         }
         content.addView(updateCard)
@@ -415,6 +438,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateProgressBar.visibility = View.GONE
                 updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
+                cancelUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
 
@@ -425,6 +449,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateProgressBar.visibility = View.GONE
                 updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
+                cancelUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = false
             }
 
@@ -436,6 +461,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateProgressBar.visibility = View.GONE
                 updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
+                cancelUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
 
@@ -448,6 +474,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.VISIBLE
                 installUpdateButton.text = context.getString(R.string.update_install_button)
+                cancelUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
 
@@ -464,6 +491,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                     state.progress.percent
                 )
                 installUpdateButton.visibility = View.GONE
+                cancelUpdateButton.visibility = View.VISIBLE
                 checkUpdateButton.isEnabled = false
             }
 
@@ -476,6 +504,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.VISIBLE
                 installUpdateButton.text = context.getString(R.string.update_permission_button)
+                cancelUpdateButton.visibility = View.VISIBLE
                 checkUpdateButton.isEnabled = true
             }
 
@@ -486,6 +515,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateProgressBar.visibility = View.GONE
                 updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
+                cancelUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
 
@@ -496,6 +526,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateProgressBar.visibility = View.GONE
                 updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
+                cancelUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
         }

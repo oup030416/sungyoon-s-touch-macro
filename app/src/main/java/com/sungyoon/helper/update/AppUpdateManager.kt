@@ -124,6 +124,38 @@ object AppUpdateManager {
         openUnknownSourcesSettings(context)
     }
 
+    fun cancelPendingUpdate(context: Context): Boolean {
+        val prefs = prefs(context)
+        val downloadId = prefs.getLong(KEY_DOWNLOAD_ID, -1L)
+        val fileName = prefs.getString(KEY_FILE_NAME, null)
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
+
+        var changed = false
+        if (downloadId >= 0L && manager != null) {
+            val removed = manager.remove(downloadId)
+            changed = removed > 0
+        }
+
+        if (!fileName.isNullOrBlank()) {
+            val downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
+            val apkFile = downloadsDir?.let { File(it, fileName) }
+            if (apkFile?.exists() == true) {
+                apkFile.delete()
+                changed = true
+            }
+        }
+
+        prefs.edit()
+            .remove(KEY_DOWNLOAD_ID)
+            .remove(KEY_FILE_NAME)
+            .remove(KEY_VERSION_CODE)
+            .remove(KEY_ASSET_SIZE_BYTES)
+            .putBoolean(KEY_AWAITING_INSTALL_PERMISSION, false)
+            .apply()
+
+        return changed
+    }
+
     fun getDownloadProgress(context: Context): AppUpdateDownloadProgress? {
         val downloadId = prefs(context).getLong(KEY_DOWNLOAD_ID, -1L)
         if (downloadId < 0L) return null
