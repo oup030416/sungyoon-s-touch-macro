@@ -22,6 +22,7 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         mainView?.refreshPermissionStateAndMaybeNavigate()
         AppUpdateManager.resumePendingInstallIfNeeded(this)
+        mainView?.refreshUpdateProgress()
 
 
         // ✅ 앱 실행/복귀 시 플로팅 버튼 다시 띄우기 요청

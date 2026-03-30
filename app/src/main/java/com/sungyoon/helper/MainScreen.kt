@@ -4,6 +4,8 @@ import android.app.Activity
 import android.graphics.Color
 import android.content.Context
 import android.graphics.Typeface
+import android.os.Handler
+import android.os.Looper
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -11,6 +13,7 @@ import android.view.ViewGroup
 import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
@@ -19,6 +22,7 @@ import com.sungyoon.helper.core.permissions.isServiceEnabled
 import com.sungyoon.helper.core.permissions.openAccessibilitySettings
 import com.sungyoon.helper.core.permissions.openOverlaySettings
 import com.sungyoon.helper.update.AppUpdateCheckResult
+import com.sungyoon.helper.update.AppUpdateDownloadProgress
 import com.sungyoon.helper.update.AppUpdateInfo
 import com.sungyoon.helper.update.AppUpdateManager
 import com.sungyoon.helper.util.toast
@@ -34,12 +38,30 @@ class MainScreenView(context: Context) : FrameLayout(context) {
     private val updateVersionValue: TextView
     private val updateStatusValue: TextView
     private val updateDetailValue: TextView
+    private val updateProgressBar: ProgressBar
+    private val updateProgressValue: TextView
     private val checkUpdateButton: Button
     private val installUpdateButton: Button
 
     private var didAutoNavigateOnce = false
     private var updateUiState: UpdateUiState = UpdateUiState.Idle
     private var latestUpdateInfo: AppUpdateInfo? = null
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val progressPollRunnable = object : Runnable {
+        override fun run() {
+            val progress = AppUpdateManager.getDownloadProgress(context)
+            if (progress != null) {
+                updateUiState = UpdateUiState.Downloading(progress)
+                renderUpdateState()
+                mainHandler.postDelayed(this, 500L)
+            } else {
+                if (updateUiState is UpdateUiState.Downloading) {
+                    updateUiState = latestUpdateInfo?.let { UpdateUiState.Outdated(it) } ?: UpdateUiState.Idle
+                    renderUpdateState()
+                }
+            }
+        }
+    }
 
     init {
         // Root
@@ -218,6 +240,31 @@ class MainScreenView(context: Context) : FrameLayout(context) {
             }
             inner.addView(updateDetailValue)
 
+            updateProgressBar = ProgressBar(
+                context,
+                null,
+                android.R.attr.progressBarStyleHorizontal
+            ).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    dp(10)
+                ).apply {
+                    topMargin = dp(10)
+                }
+                max = 100
+                progress = 0
+                visibility = View.GONE
+            }
+            inner.addView(updateProgressBar)
+
+            updateProgressValue = TextView(context).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 13f)
+                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                setPadding(0, dp(6), 0, 0)
+                visibility = View.GONE
+            }
+            inner.addView(updateProgressValue)
+
             inner.addView(MainUiParts.vSpace(context, dp(12)))
 
             checkUpdateButton = Button(context).apply {
@@ -242,7 +289,10 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 }
                 visibility = View.GONE
                 setOnClickListener {
-                    latestUpdateInfo?.let { AppUpdateManager.enqueueDownload(context, it) }
+                    latestUpdateInfo?.let {
+                        AppUpdateManager.enqueueDownload(context, it)
+                        refreshUpdateProgress()
+                    }
                 }
             }
             inner.addView(installUpdateButton)
@@ -257,7 +307,18 @@ class MainScreenView(context: Context) : FrameLayout(context) {
 
         // 초기 상태 표시
         refreshPermissionStateAndMaybeNavigate()
+        refreshUpdateProgress()
         renderUpdateState()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        refreshUpdateProgress()
+    }
+
+    override fun onDetachedFromWindow() {
+        stopProgressPolling()
+        super.onDetachedFromWindow()
     }
 
     fun refreshPermissionStateAndMaybeNavigate() {
@@ -274,6 +335,19 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 !overlayGranted -> context.openOverlaySettings()
                 !serviceEnabled -> context.openAccessibilitySettings()
             }
+        }
+    }
+
+    fun refreshUpdateProgress() {
+        val progress = AppUpdateManager.getDownloadProgress(context)
+        if (progress != null) {
+            updateUiState = UpdateUiState.Downloading(progress)
+            renderUpdateState()
+            startProgressPolling()
+        } else if (updateUiState is UpdateUiState.Downloading) {
+            updateUiState = latestUpdateInfo?.let { UpdateUiState.Outdated(it) } ?: UpdateUiState.Idle
+            renderUpdateState()
+            stopProgressPolling()
         }
     }
 
@@ -318,6 +392,8 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateStatusValue.setTextColor(neutral)
                 updateStatusValue.text = context.getString(R.string.update_status_idle)
                 updateDetailValue.visibility = View.GONE
+                updateProgressBar.visibility = View.GONE
+                updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
@@ -326,6 +402,8 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateStatusValue.setTextColor(neutral)
                 updateStatusValue.text = context.getString(R.string.update_status_checking)
                 updateDetailValue.visibility = View.GONE
+                updateProgressBar.visibility = View.GONE
+                updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = false
             }
@@ -335,6 +413,8 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateStatusValue.text = context.getString(R.string.update_status_latest)
                 updateDetailValue.visibility = View.VISIBLE
                 updateDetailValue.text = context.getString(R.string.update_latest_version, state.versionName)
+                updateProgressBar.visibility = View.GONE
+                updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
@@ -344,14 +424,38 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateStatusValue.text = context.getString(R.string.update_status_outdated)
                 updateDetailValue.visibility = View.VISIBLE
                 updateDetailValue.text = context.getString(R.string.update_latest_version, state.info.versionName)
+                updateProgressBar.visibility = View.GONE
+                updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.VISIBLE
                 checkUpdateButton.isEnabled = true
+            }
+
+            is UpdateUiState.Downloading -> {
+                updateStatusValue.setTextColor(negative)
+                updateStatusValue.text = context.getString(R.string.update_status_downloading)
+                updateDetailValue.visibility = View.VISIBLE
+                updateDetailValue.text = context.getString(
+                    R.string.update_progress_bytes,
+                    formatMegabytes(state.progress.downloadedBytes),
+                    formatMegabytes(state.progress.totalBytes)
+                )
+                updateProgressBar.visibility = View.VISIBLE
+                updateProgressBar.progress = state.progress.percent
+                updateProgressValue.visibility = View.VISIBLE
+                updateProgressValue.text = context.getString(
+                    R.string.update_progress_percent,
+                    state.progress.percent
+                )
+                installUpdateButton.visibility = View.GONE
+                checkUpdateButton.isEnabled = false
             }
 
             UpdateUiState.Offline -> {
                 updateStatusValue.setTextColor(negative)
                 updateStatusValue.text = context.getString(R.string.update_status_offline)
                 updateDetailValue.visibility = View.GONE
+                updateProgressBar.visibility = View.GONE
+                updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
@@ -360,10 +464,27 @@ class MainScreenView(context: Context) : FrameLayout(context) {
                 updateStatusValue.setTextColor(negative)
                 updateStatusValue.text = context.getString(R.string.update_status_error)
                 updateDetailValue.visibility = View.GONE
+                updateProgressBar.visibility = View.GONE
+                updateProgressValue.visibility = View.GONE
                 installUpdateButton.visibility = View.GONE
                 checkUpdateButton.isEnabled = true
             }
         }
+    }
+
+    private fun startProgressPolling() {
+        mainHandler.removeCallbacks(progressPollRunnable)
+        mainHandler.post(progressPollRunnable)
+    }
+
+    private fun stopProgressPolling() {
+        mainHandler.removeCallbacks(progressPollRunnable)
+    }
+
+    private fun formatMegabytes(bytes: Long): String {
+        if (bytes <= 0L) return "0.0MB"
+        val value = bytes / (1024f * 1024f)
+        return String.format("%.1fMB", value)
     }
 
     private fun resolveColor(attr: Int, fallback: Int): Int {
@@ -388,6 +509,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
         data object Error : UpdateUiState
         data class UpToDate(val versionName: String) : UpdateUiState
         data class Outdated(val info: AppUpdateInfo) : UpdateUiState
+        data class Downloading(val progress: AppUpdateDownloadProgress) : UpdateUiState
     }
 
     /**

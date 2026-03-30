@@ -5,6 +5,7 @@ import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.database.Cursor
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.Uri
@@ -113,6 +114,40 @@ object AppUpdateManager {
         }
     }
 
+    fun getDownloadProgress(context: Context): AppUpdateDownloadProgress? {
+        val downloadId = prefs(context).getLong(KEY_DOWNLOAD_ID, -1L)
+        if (downloadId < 0L) return null
+
+        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return null
+        val query = DownloadManager.Query().setFilterById(downloadId)
+        val cursor = manager.query(query) ?: return null
+        cursor.use {
+            if (!it.moveToFirst()) return null
+
+            val status = it.getInt(it.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            if (status != DownloadManager.STATUS_PENDING &&
+                status != DownloadManager.STATUS_PAUSED &&
+                status != DownloadManager.STATUS_RUNNING
+            ) {
+                return null
+            }
+
+            val downloadedBytes = it.getLongCompat(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+            val totalBytes = it.getLongCompat(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+            val percent = if (downloadedBytes <= 0L || totalBytes <= 0L) {
+                0
+            } else {
+                ((downloadedBytes * 100L) / totalBytes).toInt().coerceIn(0, 100)
+            }
+
+            return AppUpdateDownloadProgress(
+                percent = percent,
+                downloadedBytes = downloadedBytes.coerceAtLeast(0L),
+                totalBytes = totalBytes.coerceAtLeast(0L)
+            )
+        }
+    }
+
     private fun isDownloadSuccessful(context: Context, downloadId: Long): Boolean {
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager ?: return false
         val query = DownloadManager.Query().setFilterById(downloadId)
@@ -203,4 +238,10 @@ object AppUpdateManager {
 
     private fun prefs(context: Context) =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    private fun Cursor.getLongCompat(columnName: String): Long {
+        val index = getColumnIndex(columnName)
+        if (index < 0 || isNull(index)) return -1L
+        return getLong(index)
+    }
 }
