@@ -61,7 +61,7 @@ class PointerOverlayPresetPanelView(
     }
     private var compactScrollMode = false
     private var maxViewportHeightPx = 0
-    private val preferredPanelHeightPx = dp(600)
+    private val preferredPanelHeightPx = dp(450)
     private val compactBottomPaddingPx = dp(28)
 
     init {

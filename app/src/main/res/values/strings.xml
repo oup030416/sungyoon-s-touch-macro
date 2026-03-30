@@ -13,7 +13,7 @@
     <string name="pointer_control_subtitle">포인터를 추가하고 이동 핸들로 위치를 조정하세요.</string>
     <string name="pointer_control_hint">포인터를 선택하면 이동하거나 삭제할 수 있습니다.</string>
     <string name="pointer_control_hide">패널 접기</string>
-    <string name="pointer_panel_close">닫기</string>
+    <string name="pointer_panel_close">돌아가기 ></string>
     <string name="pointer_interval_label">터치 간격 (초)</string>
     <string name="pointer_add">포인터 추가</string>
     <string name="pointer_preset_list_button">&lt; 프리셋 목록</string>
@@ -33,7 +33,7 @@
 
     <string name="reservation_title">예약</string>
     <string name="reservation_waiting">예약 대기중</string>
-    <string name="reservation_close">닫기</string>
+    <string name="reservation_close">돌아가기 ></string>
     <string name="reservation_run_seconds">초 활동</string>
     <string name="reservation_rest_seconds">초 휴식</string>
     <string name="reservation_repeat_count">회 반복</string>

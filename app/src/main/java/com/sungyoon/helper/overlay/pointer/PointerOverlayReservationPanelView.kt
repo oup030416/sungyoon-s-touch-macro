@@ -72,7 +72,7 @@ class PointerOverlayReservationPanelView(
     }
     private var compactScrollMode = false
     private var maxViewportHeightPx = 0
-    private val preferredPanelHeightPx = dp(560)
+    private val preferredPanelHeightPx = dp(450)
     private val compactBottomPaddingPx = dp(28)
 
 
