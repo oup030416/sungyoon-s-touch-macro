@@ -351,6 +351,16 @@ class MainScreenView(context: Context) : FrameLayout(context) {
         super.onDetachedFromWindow()
     }
 
+    fun performInitialUpdateCheckIfNeeded() {
+        if (updateUiState is UpdateUiState.Checking ||
+            updateUiState is UpdateUiState.Downloading ||
+            updateUiState is UpdateUiState.AwaitingInstallPermission
+        ) {
+            return
+        }
+        handleCheckForUpdates()
+    }
+
     fun refreshPermissionStateAndMaybeNavigate() {
         val overlayGranted = isOverlayGranted(context)
         val serviceEnabled = isServiceEnabled(context)

@@ -10,12 +10,23 @@ class MainActivity : ComponentActivity() {
 
     private var mainView: MainScreenView? = null
 
+    companion object {
+        private var didInitialUpdateCheck = false
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         val v = MainScreenView(this)
         mainView = v
         setContentView(v)
+
+        if (!didInitialUpdateCheck) {
+            didInitialUpdateCheck = true
+            v.post {
+                mainView?.performInitialUpdateCheckIfNeeded()
+            }
+        }
     }
 
     override fun onResume() {
