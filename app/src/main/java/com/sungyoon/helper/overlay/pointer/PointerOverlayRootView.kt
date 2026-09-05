@@ -1486,9 +1486,11 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                         handleDragging = true
                         onDragStartInternal?.invoke(id, endpoint)
                     }
-                    val newCx = handleDownCenterX + dx
-                    val newCy = handleDownCenterY + dy
-                    moveSelectedPointerToLocalCenter(id, endpoint, newCx, newCy, notifyMove = handleDragging)
+                    if (handleDragging) {
+                        val newCx = handleDownCenterX + dx
+                        val newCy = handleDownCenterY + dy
+                        moveSelectedPointerToLocalCenter(id, endpoint, newCx, newCy, notifyMove = true)
+                    }
                     true
                 }
 
@@ -1529,8 +1531,21 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val parentH = pointerLayer.height.coerceAtLeast(1)
 
         val half = pointerTouchSizePx / 2f
-        val clampedCx = cx.coerceIn(half, (parentW - half).coerceAtLeast(half))
-        val clampedCy = cy.coerceIn(half, (parentH - half).coerceAtLeast(half))
+        var clampedCx = cx.coerceIn(half, (parentW - half).coerceAtLeast(half))
+        var clampedCy = cy.coerceIn(half, (parentH - half).coerceAtLeast(half))
+
+        val opposite = if (endpoint == Endpoint.START) dragEndViews[id] else views[id]
+        if (opposite != null) {
+            val anchorX = opposite.getCenterX()
+            val anchorY = opposite.getCenterY()
+            // Snap only during editing; loading saved points must preserve their coordinates.
+            // Keep the aligned coordinate exact even if the anchor is outside the current viewport.
+            if (abs(cx - anchorX) >= abs(cy - anchorY)) {
+                clampedCy = anchorY
+            } else {
+                clampedCx = anchorX
+            }
+        }
 
         pv.setCenter(clampedCx, clampedCy)
         updateDragLinkForPoint(id)
