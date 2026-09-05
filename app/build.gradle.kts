@@ -7,9 +7,9 @@ plugins {
 
 import java.util.Properties
 
-val appVersionName = "1.07"
-val devVersionName = "1.16"
-val devVersionCode = 12
+val appVersionName = "1.09"
+val devVersionName = "1.18"
+val devVersionCode = 14
 
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -104,4 +104,5 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }

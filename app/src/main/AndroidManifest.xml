@@ -13,12 +13,8 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/appicon_round"
         android:supportsRtl="true"
+        android:usesCleartextTraffic="false"
         android:theme="@style/Theme.SungyoonHelper">
-
-        <activity
-            android:name=".PointPickerActivity"
-            android:exported="true"
-            android:theme="@style/Theme.SungyoonHelper.Transparent" />
 
         <activity
             android:name=".MainActivity"

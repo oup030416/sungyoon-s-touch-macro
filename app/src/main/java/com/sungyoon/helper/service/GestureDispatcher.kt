@@ -48,7 +48,7 @@ suspend fun AccessibilityService.dispatchDrag(
             lineTo(toX, toY)
         }
         val duration = durationMs.coerceAtLeast(1L)
-        val stroke = GestureDescription.StrokeDescription(path, 0, duration, false)
+        val stroke = GestureDescription.StrokeDescription(path, 0, duration)
         val gesture = GestureDescription.Builder().addStroke(stroke).build()
 
         val ok = dispatchGesture(

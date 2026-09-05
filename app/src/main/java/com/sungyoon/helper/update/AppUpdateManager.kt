@@ -49,6 +49,10 @@ object AppUpdateManager {
     }
 
     fun enqueueDownload(context: Context, info: AppUpdateInfo) {
+        if (!AppUpdateChecker.isTrustedDownloadUrl(info.downloadUrl)) {
+            toast(context, context.getString(R.string.update_download_failed))
+            return
+        }
         val downloadsDir = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: return
         val fileName = buildFileName(info)
         File(downloadsDir, fileName).delete()

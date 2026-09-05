@@ -2,6 +2,7 @@ package com.sungyoon.helper.update
 
 import org.json.JSONObject
 import java.net.HttpURLConnection
+import java.net.URI
 import java.net.URL
 
 object AppUpdateChecker {
@@ -9,6 +10,25 @@ object AppUpdateChecker {
     private const val REPO = "sungyoon-s-touch-macro"
     private const val LATEST_RELEASE_URL =
         "https://api.github.com/repos/$OWNER/$REPO/releases/latest"
+
+    internal fun isTrustedDownloadUrl(value: String): Boolean {
+        return try {
+            val uri = URI(value)
+            val prefix = "/$OWNER/$REPO/releases/download/"
+            val path = uri.rawPath ?: return false
+            val assetParts = path.removePrefix(prefix).split('/')
+            uri.scheme == "https" && uri.host == "github.com" &&
+                uri.port == -1 && uri.rawUserInfo == null &&
+                uri.rawQuery == null && uri.rawFragment == null &&
+                path.startsWith(prefix) && assetParts.size == 2 &&
+                assetParts.all { it.isNotBlank() && it != "." && it != ".." } &&
+                // Reject encoded path separators and traversal before DownloadManager follows redirects.
+                !Regex("(?i)%(?:2f|5c|2e)").containsMatchIn(path) &&
+                assetParts.last().endsWith(".apk", ignoreCase = true)
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     fun fetchLatestRelease(): AppUpdateInfo? {
         val connection = (URL(LATEST_RELEASE_URL).openConnection() as? HttpURLConnection) ?: return null
@@ -43,8 +63,9 @@ object AppUpdateChecker {
         for (i in 0 until assets.length()) {
             val asset = assets.optJSONObject(i) ?: continue
             val name = asset.optString("name")
-            if (name.endsWith(".apk", ignoreCase = true)) {
-                downloadUrl = asset.optString("browser_download_url")
+            val candidateUrl = asset.optString("browser_download_url")
+            if (name.endsWith(".apk", ignoreCase = true) && isTrustedDownloadUrl(candidateUrl)) {
+                downloadUrl = candidateUrl
                 assetName = name
                 assetSizeBytes = asset.optLong("size", -1L)
                 break

@@ -21,7 +21,9 @@ build/
 /app/release/
 
 # Credentials, signing material, and private service configuration
-/app/google-services.json
+google-services.json
+.env
+.env.*
 **/service-account*.json
 **/firebase-adminsdk*.json
 **/secrets.properties
