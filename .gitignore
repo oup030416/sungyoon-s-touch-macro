@@ -1,24 +1,31 @@
+# Local tools and configuration
 *.iml
-.gradle
-/local.properties
-/.idea
-/.vscode
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
+.idea/
+.vscode/
 .DS_Store
-/build
+local.properties
+/AGENTS.md
+/app/sungyoonTouchmacro
+
+# Generated files and distribution output
+.gradle
+.kotlin
+build/
 /captures
 .externalNativeBuild
 .cxx
-local.properties
-/AGENTS.md
+*.orig
 *.apk
 *.aab
 *.apks
+/app/release/
+
+# Credentials, signing material, and private service configuration
+/app/google-services.json
+**/service-account*.json
+**/firebase-adminsdk*.json
+**/secrets.properties
+**/signing.properties
 *.jks
 *.keystore
 *.p12
@@ -26,10 +33,3 @@ local.properties
 *.key
 *.der
 *.mobileprovision
-*.orig
-app/google-services.json
-app/release/
-**/service-account*.json
-**/firebase-adminsdk*.json
-**/secrets.properties
-**/signing.properties
