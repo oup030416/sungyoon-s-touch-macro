@@ -30,52 +30,34 @@ object PointsStore {
     }
     private val listSer = ListSerializer(HighlightingPoint.serializer())
 
-    @Volatile
-    private var cachedRaw: String = ""
-
-    @Volatile
-    private var cachedPoints: List<HighlightingPoint> = emptyList()
-
-    private fun decodePoints(raw: String): List<HighlightingPoint> {
-        if (raw.isBlank()) {
-            cachedRaw = ""
-            cachedPoints = emptyList()
-            return emptyList()
-        }
-        if (cachedRaw == raw) return cachedPoints
-
-        val decoded = runCatching { json.decodeFromString(listSer, raw) }.getOrDefault(emptyList())
-        cachedRaw = raw
-        cachedPoints = decoded
+    internal fun decodePoints(raw: String?): List<HighlightingPoint> {
+        if (raw == null) return emptyList()
+        val decoded = json.decodeFromString(listSer, raw)
+        require(decoded.map { it.id }.distinct().size == decoded.size) { "Duplicate pointer IDs" }
+        require(decoded.all { it.x.isFinite() && it.y.isFinite() && it.dragToX.isFinite() && it.dragToY.isFinite() })
         return decoded
-    }
-
-    private fun updateCache(raw: String, points: List<HighlightingPoint>) {
-        cachedRaw = raw
-        cachedPoints = points
     }
 
     fun pointsFlow(context: Context): Flow<List<HighlightingPoint>> {
         return context.dataStore.data
-            .map { prefs -> decodePoints(prefs[KEY_POINTS].orEmpty()) }
+            .map { prefs -> decodePoints(prefs[KEY_POINTS]) }
             .flowOn(Dispatchers.IO)
     }
 
     suspend fun addPoint(context: Context, point: HighlightingPoint) {
         context.dataStore.edit { prefs ->
-            val list = decodePoints(prefs[KEY_POINTS].orEmpty())
+            val list = decodePoints(prefs[KEY_POINTS])
             val next = (list + point).take(2000)
             val encoded = json.encodeToString(listSer, next)
 
             prefs[KEY_POINTS] = encoded
             prefs[KEY_SCHEMA] = SCHEMA_SCREEN
-            updateCache(encoded, next)
         }
     }
 
     suspend fun updatePointPosition(context: Context, id: String, x: Float, y: Float) {
         context.dataStore.edit { prefs ->
-            val list = decodePoints(prefs[KEY_POINTS].orEmpty())
+            val list = decodePoints(prefs[KEY_POINTS])
             val index = list.indexOfFirst { it.id == id }
             if (index < 0) return@edit
 
@@ -98,13 +80,12 @@ object PointsStore {
 
             prefs[KEY_POINTS] = encoded
             prefs[KEY_SCHEMA] = SCHEMA_SCREEN
-            updateCache(encoded, next)
         }
     }
 
     suspend fun updateDragEndPosition(context: Context, id: String, x: Float, y: Float) {
         context.dataStore.edit { prefs ->
-            val list = decodePoints(prefs[KEY_POINTS].orEmpty())
+            val list = decodePoints(prefs[KEY_POINTS])
             val index = list.indexOfFirst { it.id == id }
             if (index < 0) return@edit
 
@@ -121,32 +102,32 @@ object PointsStore {
 
             prefs[KEY_POINTS] = encoded
             prefs[KEY_SCHEMA] = SCHEMA_SCREEN
-            updateCache(encoded, next)
         }
     }
 
     suspend fun deletePoint(context: Context, id: String) {
         context.dataStore.edit { prefs ->
-            val list = decodePoints(prefs[KEY_POINTS].orEmpty())
+            val list = decodePoints(prefs[KEY_POINTS])
             val next = list.filterNot { it.id == id }
             val encoded = json.encodeToString(listSer, next)
 
             prefs[KEY_POINTS] = encoded
-            updateCache(encoded, next)
         }
     }
 
     suspend fun clear(context: Context) {
         context.dataStore.edit { prefs ->
+            decodePoints(prefs[KEY_POINTS])
             prefs.remove(KEY_POINTS)
             prefs.remove(KEY_SCHEMA)
-            updateCache("", emptyList())
         }
     }
 
     suspend fun replaceAll(context: Context, points: List<HighlightingPoint>) {
         context.dataStore.edit { prefs ->
-            val next = points.sortedBy { it.index }.take(2000)
+            decodePoints(prefs[KEY_POINTS])
+            val next = points.take(2000)
+            require(next.map { it.id }.distinct().size == next.size)
             val encoded = if (next.isEmpty()) {
                 ""
             } else {
@@ -159,7 +140,6 @@ object PointsStore {
                 prefs[KEY_POINTS] = encoded
             }
             prefs[KEY_SCHEMA] = SCHEMA_SCREEN
-            updateCache(encoded, next)
         }
     }
 
@@ -168,10 +148,9 @@ object PointsStore {
             val schema = prefs[KEY_SCHEMA] ?: SCHEMA_LOCAL
             if (schema >= SCHEMA_SCREEN) return@edit
 
-            val list = decodePoints(prefs[KEY_POINTS].orEmpty())
+            val list = decodePoints(prefs[KEY_POINTS])
             if (list.isEmpty()) {
                 prefs[KEY_SCHEMA] = SCHEMA_SCREEN
-                updateCache("", emptyList())
                 return@edit
             }
 
@@ -190,7 +169,6 @@ object PointsStore {
 
             prefs[KEY_POINTS] = encoded
             prefs[KEY_SCHEMA] = SCHEMA_SCREEN
-            updateCache(encoded, migrated)
         }
     }
 }

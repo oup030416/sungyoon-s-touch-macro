@@ -35,6 +35,7 @@ android {
 
     defaultConfig {
         applicationId = "com.sungyoon.helper"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 24
         targetSdk = 36
         // App version is user-facing and only changes on explicit request.
@@ -105,4 +106,6 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("junit:junit:4.13.2")
 }

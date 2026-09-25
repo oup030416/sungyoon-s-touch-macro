@@ -9,7 +9,23 @@ data class PresetEntry(
     val name: String,
     val createdAtEpochMs: Long,
     val points: List<PresetPoint>,
-    val autoNameOrdinal: Int
+    val autoNameOrdinal: Int,
+    val settings: PresetSettings? = null
+) {
+    val isHold: Boolean get() = id == HOLD_PRESET_ID
+
+    companion object {
+        const val HOLD_PRESET_ID = "builtin_touch_hold"
+    }
+}
+
+@Serializable
+data class PresetSettings(
+    val tapIntervalMs: Long = 1000L,
+    val dragDurationMs: Long = 1000L,
+    val randomRadiusDp: Int = 5,
+    val repeatEnabled: Boolean = true,
+    val touchAnimationEnabled: Boolean = true
 )
 
 @Serializable

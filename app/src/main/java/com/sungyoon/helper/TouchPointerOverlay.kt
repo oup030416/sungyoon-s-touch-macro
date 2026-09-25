@@ -30,12 +30,10 @@ object TouchPointerOverlay {
         synchronized(lock) {
             controller?.hide()
         }
-
-        // ✅ 패널이 꺼지면 예약 재개
-        // (수동 시퀀스 시작 시에는 서비스가 예약을 stop 처리하므로, resume이 와도 active=false면 무시됩니다)
-        val c = controller
-        val app = (c?.let { null } ?: return) // no-op; controller가 없으면 context가 없음
     }
+
+    suspend fun flushEdits() { controller?.flushEdits() }
+    suspend fun flushAndHide() { controller?.flushAndHide() }
 
     fun isShowing(): Boolean {
         synchronized(lock) {
