@@ -11,6 +11,7 @@ import android.os.Looper
 import android.view.Gravity
 import android.view.Choreographer
 import android.view.View
+import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.core.content.ContextCompat
@@ -416,29 +417,70 @@ class PointerOverlayController(private val app: Context) {
         root?.let { closingView ->
             val removed = CompletableDeferred<Unit>()
             pendingWindowRemoval = removed
+            val closingParams = WindowManager.LayoutParams().apply {
+                copyFrom(checkNotNull(overlayLp))
+                flags = flags or WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE
+                alpha = 0f
+            }
             val finishRemoval = Runnable {
                 // WindowManager publishes input routing in subsequent animation transactions.
                 val frames = Choreographer.getInstance()
-                frames.postFrameCallback { frames.postFrameCallback { removed.complete(Unit) } }
+                frames.postFrameCallback { frames.postFrameCallback {
+                    if (pendingWindowRemoval === removed) pendingWindowRemoval = null
+                    removed.complete(Unit)
+                } }
+            }
+            var removalStarted = false
+            lateinit var beforeDraw: ViewTreeObserver.OnPreDrawListener
+            lateinit var removalTimeout: Runnable
+            val removeWindow = Runnable {
+                if (removalStarted) return@Runnable
+                removalStarted = true
+                mainHandler.removeCallbacks(removalTimeout)
+                if (closingView.viewTreeObserver.isAlive) {
+                    closingView.viewTreeObserver.removeOnPreDrawListener(beforeDraw)
+                }
+                try {
+                    wm.removeView(closingView)
+                    if (!closingView.isAttachedToWindow) mainHandler.post(finishRemoval)
+                } catch (error: RuntimeException) {
+                    removed.completeExceptionally(error)
+                }
             }
             val listener = object : View.OnAttachStateChangeListener {
                 override fun onViewAttachedToWindow(view: View) = Unit
                 override fun onViewDetachedFromWindow(view: View) {
                     view.removeOnAttachStateChangeListener(this)
+                    mainHandler.removeCallbacks(removalTimeout)
+                    mainHandler.removeCallbacks(removeWindow)
+                    if (view.viewTreeObserver.isAlive) {
+                        view.viewTreeObserver.removeOnPreDrawListener(beforeDraw)
+                    }
                     // Detach callbacks precede the window/input-channel teardown in ViewRootImpl.
                     mainHandler.post(finishRemoval)
                 }
             }
             closingView.addOnAttachStateChangeListener(listener)
+            beforeDraw = ViewTreeObserver.OnPreDrawListener {
+                closingView.viewTreeObserver.removeOnPreDrawListener(beforeDraw)
+                mainHandler.removeCallbacks(removalTimeout)
+                // Relayout has submitted alpha/flags before pre-draw. Keep the input channel alive
+                // while that update propagates; removing it first can discard the hold's only DOWN.
+                mainHandler.postDelayed(removeWindow, 100L)
+                true
+            }
+            removalTimeout = Runnable {
+                // A stopped display may never draw. Clean up, but never start a hold blindly.
+                removed.completeExceptionally(IllegalStateException("Overlay input handoff did not draw"))
+                removeWindow.run()
+            }
             try {
-                wm.removeView(closingView)
-                if (!closingView.isAttachedToWindow) {
-                    closingView.removeOnAttachStateChangeListener(listener)
-                    mainHandler.post(finishRemoval)
-                }
+                closingView.viewTreeObserver.addOnPreDrawListener(beforeDraw)
+                wm.updateViewLayout(closingView, closingParams)
+                mainHandler.postDelayed(removalTimeout, 1_000L)
             } catch (error: RuntimeException) {
-                closingView.removeOnAttachStateChangeListener(listener)
                 removed.completeExceptionally(error)
+                removeWindow.run()
             }
         }
         root = null

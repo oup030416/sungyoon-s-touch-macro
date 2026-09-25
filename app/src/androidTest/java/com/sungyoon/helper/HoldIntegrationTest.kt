@@ -103,8 +103,6 @@ class HoldIntegrationTest {
             }
         }
         instrumentation.waitForIdleSync()
-        // Remove any residual input from an interrupted diagnostic run on this disposable AVD.
-        injectTap(centerX, centerY)
         target.events.clear()
     }
 
@@ -189,6 +187,106 @@ class HoldIntegrationTest {
     @Test
     fun testFloatingOffDoesNotRestartAfterPhysicalTouchCancellation() {
         startAndAwaitDown()
+        tapHoldControl(expectedEnabled = false)
+        awaitReleased()
+        assertNoRestart()
+    }
+
+    @Test
+    fun testFloatingOnWithManagerClosedAndFractionalAnchor() {
+        assertFloatingOnAtFractionalAnchor(managerOpen = false)
+    }
+
+    @Test
+    fun testFloatingOnAfterPhysicalPointerDragWithManagerOpen() {
+        assertFloatingOnAtFractionalAnchor(managerOpen = true)
+    }
+
+    private fun assertFloatingOnAtFractionalAnchor(managerOpen: Boolean) {
+        centerX = centerX.roundToInt() + 0.9365f
+        centerY = centerY.roundToInt() + 0.15625f
+        runBlocking {
+            withContext(Dispatchers.Main.immediate) {
+                PresetSession.editPoints(activity, PresetEntry.HOLD_PRESET_ID) { points ->
+                    points.map { it.copy(x = centerX, y = centerY, dragToX = centerX, dragToY = centerY) }
+                }
+            }
+        }
+        try {
+            if (managerOpen) {
+                instrumentation.runOnMainSync { TouchPointerOverlay.show(activity) }
+                await("The hold manager did not finish opening") {
+                    overlayRoot()?.getSelectedPresetId() == PresetEntry.HOLD_PRESET_ID
+                }
+                instrumentation.waitForIdleSync()
+                dragHoldPointerBeforeFirstOn()
+            }
+            assertEquals(managerOpen, TouchPointerOverlay.isShowing())
+            // Exercise the actual physical-style DOWN/UP button path, not setHold reflection.
+            tapHoldControl(expectedEnabled = true)
+            awaitHoldDown()
+            SystemClock.sleep(2_200)
+            assertTrue("The actual On button did not keep the hold running", isHolding())
+            assertEquals("On must inject only one initial DOWN", 1, target.downCount())
+            assertEquals("The hold ended without an Off request", 0, target.endCount())
+            assertFalse("On must close the manager", TouchPointerOverlay.isShowing())
+            assertFalse(target.events.first().managerVisible)
+            target.events.forEach {
+                assertTrue(abs(it.x - centerX.roundToInt()) <= 1f)
+                assertEquals(centerY.roundToInt().toFloat(), it.y, 0f)
+            }
+            val savedPoint = PresetSession.state.value.points.single()
+            assertEquals("Injection must not round the saved x coordinate", centerX, savedPoint.x, 0.001f)
+            assertEquals("Injection must not round the saved y coordinate", centerY, savedPoint.y, 0.001f)
+            assertTrue("The moved pointer must retain its fractional x coordinate", savedPoint.x % 1f != 0f)
+            assertTrue("The moved pointer must retain its fractional y coordinate", savedPoint.y % 1f != 0f)
+            tapHoldControl(expectedEnabled = false)
+            awaitReleased()
+            assertNoRestart()
+        } finally {
+            runBlocking { withContext(Dispatchers.Main.immediate) { TouchPointerOverlay.flushAndHide() } }
+        }
+    }
+
+    private fun dragHoldPointerBeforeFirstOn() {
+        val root = overlayRoot()!!
+        val panel = root.javaClass.getDeclaredField("controlPanelScrollHost")
+            .apply { isAccessible = true }.get(root) as View
+        instrumentation.runOnMainSync { root.setControlPanelVisibleFromController(false) }
+        await("The panel still covers the hold pointer") { panel.visibility == View.GONE }
+        @Suppress("UNCHECKED_CAST")
+        val pointer = (root.javaClass.getDeclaredField("views").apply { isAccessible = true }
+            .get(root) as Map<String, View>).getValue(PresetEntry.HOLD_PRESET_ID)
+        val start = IntArray(2)
+        instrumentation.runOnMainSync {
+            pointer.getLocationOnScreen(start)
+            start[0] += pointer.width / 2
+            start[1] += pointer.height / 2
+        }
+        val dx = 80.375f
+        val dy = 60.3125f
+        val downTime = SystemClock.uptimeMillis()
+        val inject = UiAutomation::class.java.getMethod("injectInputEventToInputFilter", InputEvent::class.java)
+        for (step in 0..7) {
+            val fraction = step.coerceAtMost(6) / 6f
+            val action = when (step) {
+                0 -> MotionEvent.ACTION_DOWN
+                7 -> MotionEvent.ACTION_UP
+                else -> MotionEvent.ACTION_MOVE
+            }
+            val event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action,
+                start[0] + dx * fraction, start[1] + dy * fraction, 0).apply {
+                source = InputDevice.SOURCE_TOUCHSCREEN
+            }
+            try { inject.invoke(automation, event) } finally { event.recycle() }
+            if (step < 7) SystemClock.sleep(20)
+        }
+        // Do not await autosave or inject a warmup touch before the very first On click.
+        centerX += dx
+        centerY += dy
+    }
+
+    private fun tapHoldControl(expectedEnabled: Boolean) {
         val controller = serviceField("floatingToggle")!!
         val button = controller.javaClass.getDeclaredField("holdButton").apply { isAccessible = true }.get(controller) as View
         val callbackField = controller.javaClass.getDeclaredField("onHoldToggle").apply { isAccessible = true }
@@ -208,9 +306,7 @@ class HoldIntegrationTest {
         try {
             injectTap(point[0].toFloat(), point[1].toFloat(), throughAccessibilityFilter = true)
             await("The physical tap did not activate the floating hold control at ${point.toList()}") { requested.get() != null }
-            assertEquals("A cancellation callback changed the intended Off click into On", false, requested.get())
-            awaitReleased()
-            assertNoRestart()
+            assertEquals("The physical click requested the wrong hold state", expectedEnabled, requested.get())
         } finally {
             instrumentation.runOnMainSync { callbackField.set(controller, callback) }
         }
@@ -326,6 +422,10 @@ class HoldIntegrationTest {
 
     private fun startAndAwaitDown() {
         instrumentation.runOnMainSync { setHold(true) }
+        awaitHoldDown()
+    }
+
+    private fun awaitHoldDown() {
         try {
             await("The service did not inject a hold DOWN event") { target.downCount() >= 1 }
         } catch (failure: AssertionError) {

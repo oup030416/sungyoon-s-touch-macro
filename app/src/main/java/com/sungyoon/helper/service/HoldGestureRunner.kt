@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Build
+import android.util.Log
 import androidx.annotation.MainThread
 import androidx.annotation.RequiresApi
 import kotlinx.coroutines.CompletableDeferred
@@ -142,6 +143,7 @@ internal interface HoldGestureBackend {
 
 private class AndroidHoldGestureBackend(private val service: AccessibilityService) : HoldGestureBackend {
     override val isSupported: Boolean get() = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+    private var dispatchNumber = 0L
 
     @RequiresApi(Build.VERSION_CODES.O)
     private class AndroidStroke(
@@ -183,13 +185,19 @@ private class AndroidHoldGestureBackend(private val service: AccessibilityServic
     override fun dispatch(stroke: HoldStroke, onResult: (Boolean) -> Unit): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) error("Continued gestures require Android 8")
         val gesture = GestureDescription.Builder().addStroke((stroke as AndroidStroke).stroke).build()
-        return service.dispatchGesture(
+        val number = ++dispatchNumber
+        val accepted = service.dispatchGesture(
             gesture,
             object : AccessibilityService.GestureResultCallback() {
                 override fun onCompleted(gestureDescription: GestureDescription?) = onResult(true)
-                override fun onCancelled(gestureDescription: GestureDescription?) = onResult(false)
+                override fun onCancelled(gestureDescription: GestureDescription?) {
+                    Log.w("SungyoonHold", "Gesture cancelled: dispatch=$number, continuing=${stroke.stroke.willContinue()}")
+                    onResult(false)
+                }
             },
             null
         )
+        if (!accepted) Log.w("SungyoonHold", "Gesture rejected: dispatch=$number")
+        return accepted
     }
 }
