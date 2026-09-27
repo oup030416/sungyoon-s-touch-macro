@@ -16,6 +16,7 @@ import android.view.InputDevice
 import android.view.InputEvent
 import android.view.View
 import android.view.WindowManager
+import android.widget.TextView
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sungyoon.helper.data.PresetSession
 import com.sungyoon.helper.data.PresetStore
@@ -137,7 +138,7 @@ class HoldIntegrationTest {
             if (::service.isInitialized) {
                 sendCommand(SungyoonHelperService.ACTION_STOP_SEQUENCE)
                 sendCommand(SungyoonHelperService.ACTION_STOP_RESERVATION)
-                instrumentation.runOnMainSync { setHold(false) }
+                instrumentation.runOnMainSync { setPlayback(false) }
                 runBlocking {
                     withTimeout(5_000) {
                         withContext(Dispatchers.Main.immediate) {
@@ -170,7 +171,7 @@ class HoldIntegrationTest {
             assertEquals("A hold moved vertically", centerY.roundToInt().toFloat(), it.y, 0f)
         }
 
-        instrumentation.runOnMainSync { setHold(false) }
+        instrumentation.runOnMainSync { setPlayback(false) }
         awaitReleased()
         assertEquals(1, target.events.count { it.action == MotionEvent.ACTION_UP })
         assertEquals(0, target.events.count { it.action == MotionEvent.ACTION_CANCEL })
@@ -189,15 +190,28 @@ class HoldIntegrationTest {
 
     @Test
     fun testRapidOnOffDoesNotLeaveAPointerOrRestart() {
+        configureMixed(repeat = true)
         startAndAwaitDown()
         repeat(8) {
             instrumentation.runOnMainSync {
-                setHold(false)
-                setHold(true)
+                setPlayback(false)
+                setPlayback(true)
+                setPlayback(false)
+                setPlayback(true)
+                setPlayback(false)
             }
             SystemClock.sleep(20)
-            instrumentation.runOnMainSync { setHold(false) }
         }
+        awaitReleased()
+        awaitPlaybackOff()
+
+        val completedStarts = target.downCount()
+        instrumentation.runOnMainSync { setPlayback(true) }
+        await("On after a cancelled command chain did not start") { target.downCount() > completedStarts && isHolding() }
+        SystemClock.sleep(300)
+        assertTrue("An older Off cleanup released the newest holds", isHolding())
+        assertTrue("An older command cleared the newest On state", isPlaybackOn())
+        instrumentation.runOnMainSync { setPlayback(false) }
         awaitReleased()
         var down = false
         for (event in target.events) {
@@ -210,13 +224,14 @@ class HoldIntegrationTest {
             }
         }
         assertFalse("A pointer remains pressed after rapid Off", down)
+        awaitPlaybackOff()
         assertNoRestart()
     }
 
     @Test
     fun testFloatingOffDoesNotRestartAfterPhysicalTouchCancellation() {
         startAndAwaitDown()
-        tapHoldControl(expectedEnabled = false)
+        tapPlaybackControl(expectedEnabled = false)
         awaitReleased()
         assertNoRestart()
     }
@@ -251,8 +266,8 @@ class HoldIntegrationTest {
                 dragHoldPointerBeforeFirstOn()
             }
             assertEquals(managerOpen, TouchPointerOverlay.isShowing())
-            // Exercise the actual physical-style DOWN/UP button path, not setHold reflection.
-            tapHoldControl(expectedEnabled = true)
+            // Exercise the actual physical-style DOWN/UP button path, not setPlayback reflection.
+            tapPlaybackControl(expectedEnabled = true)
             awaitHoldDown()
             SystemClock.sleep(2_200)
             assertTrue("The actual On button did not keep the hold running", isHolding())
@@ -269,7 +284,7 @@ class HoldIntegrationTest {
             assertEquals("Injection must not round the saved y coordinate", centerY, savedPoint.y, 0.001f)
             assertTrue("The moved pointer must retain its fractional x coordinate", savedPoint.x % 1f != 0f)
             assertTrue("The moved pointer must retain its fractional y coordinate", savedPoint.y % 1f != 0f)
-            tapHoldControl(expectedEnabled = false)
+            tapPlaybackControl(expectedEnabled = false)
             awaitReleased()
             assertNoRestart()
         } finally {
@@ -315,14 +330,14 @@ class HoldIntegrationTest {
         centerY += dy
     }
 
-    private fun tapHoldControl(expectedEnabled: Boolean) {
+    private fun tapPlaybackControl(expectedEnabled: Boolean) {
         val controller = serviceField("floatingToggle")!!
-        val button = controller.javaClass.getDeclaredField("holdButton").apply { isAccessible = true }.get(controller) as View
-        val callbackField = controller.javaClass.getDeclaredField("onHoldToggle").apply { isAccessible = true }
+        val button = controller.javaClass.getDeclaredField("playbackButton").apply { isAccessible = true }.get(controller) as View
+        val callbackField = controller.javaClass.getDeclaredField("onPlaybackToggle").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         val callback = callbackField.get(controller) as (Boolean) -> Unit
         val requested = AtomicReference<Boolean?>()
-        await("The floating hold control has not been laid out") {
+        await("The floating playback control has not been laid out") {
             button.isShown && button.width > 0 && button.height > 0
         }
         val point = IntArray(2)
@@ -334,8 +349,8 @@ class HoldIntegrationTest {
         }
         try {
             injectTap(point[0].toFloat(), point[1].toFloat(), throughAccessibilityFilter = true)
-            await("The physical tap did not activate the floating hold control at ${point.toList()}") { requested.get() != null }
-            assertEquals("The physical click requested the wrong hold state", expectedEnabled, requested.get())
+            await("The physical tap did not activate the floating playback control at ${point.toList()}") { requested.get() != null }
+            assertEquals("The physical click requested the wrong playback state", expectedEnabled, requested.get())
         } finally {
             instrumentation.runOnMainSync { callbackField.set(controller, callback) }
         }
@@ -451,7 +466,7 @@ class HoldIntegrationTest {
 
     @Test fun testTwoHoldsContinueAcrossTapsAndSegmentedDrag() {
         configureMixed(repeat = false)
-        sendCommand(SungyoonHelperService.ACTION_START_SEQUENCE)
+        tapPlaybackControl(expectedEnabled = true)
         await("The ordinary drag did not finish") {
             target.events.count { it.action == MotionEvent.ACTION_POINTER_UP } >= 2
         }
@@ -459,6 +474,7 @@ class HoldIntegrationTest {
             runBlocking { !SequencePrefsStore.sequenceRunningFlow(activity).first() }
         }
         assertTrue("Completion must leave holds On", isHolding())
+        assertTrue("The global control must stay On while holds remain", isPlaybackOn())
         val holdIds = target.events.first { it.pointerIds.size == 2 }.pointerIds.toSet()
         assertEquals(2, holdIds.size)
         assertTrue(target.events.filter { it.action == MotionEvent.ACTION_POINTER_UP }.all { it.actionId !in holdIds })
@@ -470,27 +486,57 @@ class HoldIntegrationTest {
         assertTrue("The ordinary drag did not move while holding", target.events.any {
             it.action == MotionEvent.ACTION_MOVE && it.coordinates.any { (id, xy) -> id !in holdIds && xy.first > centerX + 60f }
         })
-        instrumentation.runOnMainSync { setHold(false) }
+        instrumentation.runOnMainSync { setPlayback(false) }
         awaitReleased()
         assertEquals(1, target.events.count { it.action == MotionEvent.ACTION_UP })
         assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL })
     }
 
-    @Test fun testHoldOffKeepsOrdinarySequenceRunning() {
-        configureMixed(repeat = true)
-        sendCommand(SungyoonHelperService.ACTION_START_SEQUENCE)
-        await("Mixed playback did not start") { target.events.any { it.pointerIds.size == 3 } }
-        instrumentation.runOnMainSync { setHold(false) }
-        await("Hold Off did not release the holds") { !isHolding() }
-        val end = target.events.size
-        await("Ordinary playback did not continue after Hold Off") {
-            target.events.drop(end).any { it.action == MotionEvent.ACTION_DOWN && it.pointerIds.size == 1 }
+    @Test fun testOrdinaryOnlyFloatingToggleTurnsOffAfterCompletion() {
+        configureMixed(repeat = false)
+        runBlocking { withContext(Dispatchers.Main.immediate) {
+            PresetSession.editPoints(activity, fixtureId) { points -> points.filterNot { it.actionType == "hold" } }
+        } }
+        instrumentation.runOnMainSync {
+            assertTrue("Ordinary-only playback must have a visible control", playbackButton().isShown)
+            assertTrue("Ordinary-only playback must not require hold support", playbackButton().isEnabled)
         }
-        assertTrue(runBlocking { SequencePrefsStore.sequenceRunningFlow(activity).first() })
-        sendCommand(SungyoonHelperService.ACTION_STOP_SEQUENCE)
+        tapPlaybackControl(expectedEnabled = true)
+        await("The ordinary sequence did not start") { target.downCount() > 0 }
+        assertTrue("Ordinary playback must show On without any holds", isPlaybackOn())
+        await("The ordinary tap and drag did not finish") { target.endCount() == 2 }
+        awaitPlaybackOff()
+        assertEquals(2, target.downCount())
+        assertFalse(isHolding())
+        assertTrue(target.events.all { it.pointerIds.size == 1 })
+        assertNoRestart()
+
+        target.events.clear()
+        tapPlaybackControl(expectedEnabled = true)
+        await("A later On did not restart ordinary playback") { target.downCount() > 0 }
+        val first = target.events.first()
+        assertEquals(centerX.roundToInt().toFloat(), first.x, 0f)
+        assertEquals((centerY + 150f).roundToInt().toFloat(), first.y, 0f)
+        tapPlaybackControl(expectedEnabled = false)
+        awaitReleased()
+        awaitPlaybackOff()
+        assertNoRestart()
     }
 
-    @Test fun testOffDuringPendingPlaybackHandoffDoesNotReactivateHolds() {
+    @Test fun testMixedFloatingOffStopsOrdinarySequenceAndHolds() {
+        configureMixed(repeat = true)
+        tapPlaybackControl(expectedEnabled = true)
+        await("Mixed playback did not start") { target.events.any { it.pointerIds.size == 3 } }
+        assertTrue(isPlaybackOn())
+        tapPlaybackControl(expectedEnabled = false)
+        awaitReleased()
+        awaitPlaybackOff()
+        assertFalse(runBlocking { SequencePrefsStore.sequenceRunningFlow(activity).first() })
+        assertFalse(reservationSnapshot().active)
+        assertNoRestart()
+    }
+
+    @Test fun testOffDuringPendingPlaybackHandoffCancelsAllPlayback() {
         configureMixed(repeat = false)
         instrumentation.runOnMainSync { TouchPointerOverlay.show(activity) }
         await("The manager did not load") { overlayRoot()?.getSelectedPresetId() == fixtureId }
@@ -498,10 +544,10 @@ class HoldIntegrationTest {
         await("Playback did not enter input handoff") {
             (serviceField("executionCommand") as? kotlinx.coroutines.Job)?.isActive == true
         }
-        instrumentation.runOnMainSync { setHold(false) }
-        await("Ordinary playback did not proceed") { target.endCount() >= 2 }
-        assertFalse(isHolding())
-        assertTrue("An obsolete Play request reactivated holds", target.events.all { it.pointerIds.size == 1 })
+        instrumentation.runOnMainSync { setPlayback(false) }
+        awaitPlaybackOff()
+        assertNoRestart()
+        assertEquals("An obsolete Play request injected a contact after Off", 0, target.downCount())
     }
 
     @Test fun testReservationStopCancelsItsPendingInputHandoff() {
@@ -512,7 +558,7 @@ class HoldIntegrationTest {
         await("Reservation did not enter input handoff") {
             (serviceField("executionCommand") as? kotlinx.coroutines.Job)?.isActive == true
         }
-        sendCommand(SungyoonHelperService.ACTION_STOP_RESERVATION)
+        instrumentation.runOnMainSync { setPlayback(false) }
         await("The pending reservation command did not stop") {
             (serviceField("executionCommand") as? kotlinx.coroutines.Job)?.isActive != true
         }
@@ -520,11 +566,16 @@ class HoldIntegrationTest {
         assertFalse(isHolding())
         assertFalse(runBlocking { ReservationRuntimeStore.snapshotFlow(activity).first().active })
         assertEquals(0, target.downCount())
+        awaitPlaybackOff()
     }
 
     @Test fun testReleasingHoldsBeforeAQueuedTapDoesNotShareTheDownTimestamp() {
         configureMixed(repeat = false)
-        startAndAwaitDown()
+        runBlocking { withContext(Dispatchers.Main.immediate) {
+            assertTrue((serviceField("holdRunner") as HoldGestureRunner).startHolds(
+                PresetSession.state.value.points.filter { it.actionType == "hold" }))
+        } }
+        awaitHoldDown()
         await("Both holds did not reach the target") { target.events.any { it.pointerIds.size == 2 } }
         runBlocking { withContext(Dispatchers.Main.immediate) {
             val runner = serviceField("holdRunner") as HoldGestureRunner
@@ -560,10 +611,57 @@ class HoldIntegrationTest {
         SystemClock.sleep(700)
         assertFalse(isHolding())
         assertTrue(target.events.drop(end).all { it.pointerIds.size == 1 })
+        assertTrue("Physical cancellation must leave ordinary playback On", isPlaybackOn())
         sendCommand(SungyoonHelperService.ACTION_STOP_SEQUENCE)
     }
 
-    @Test fun testReservationRestAndPauseKeepHoldsUntilOff() {
+    @Test fun testReservationOffPausesAndOnResumesTheSavedPointWithHolds() {
+        configureMixed(repeat = false)
+        runBlocking { withContext(Dispatchers.Main.immediate) {
+            PresetSession.editSettings(activity, fixtureId, PresetSettings(1_000, 350, 0, false, false))
+        } }
+        sendCommand(SungyoonHelperService.ACTION_START_RESERVATION) {
+            putExtra(SungyoonHelperService.EXTRA_RUN_SEC, 8)
+            putExtra(SungyoonHelperService.EXTRA_REST_SEC, 3)
+            putExtra(SungyoonHelperService.EXTRA_REPEAT_COUNT, 2)
+        }
+        await("The first reservation point did not finish") {
+            reservationSnapshot().let { it.active && !it.paused && it.nextPointOffset == 1 }
+        }
+        instrumentation.runOnMainSync { setPlayback(false) }
+        await("Off did not pause the reservation") { reservationSnapshot().let { it.active && it.paused } }
+        awaitReleased()
+        awaitPlaybackOff()
+        val paused = reservationSnapshot()
+        assertEquals(ReservationRuntimeStore.PHASE_RUN, paused.phase)
+        assertEquals("Off must retain the next ordinary point", 1, paused.nextPointOffset)
+        assertTrue(paused.pausedRemainingMs in 1L..8_000L)
+        SystemClock.sleep(300)
+        assertEquals("Paused reservation progress changed while Off", paused, reservationSnapshot())
+
+        val resumedEvents = target.events.size
+        tapPlaybackControl(expectedEnabled = true)
+        await("On did not resume the reservation and holds") {
+            isHolding() && reservationSnapshot().let { it.active && !it.paused }
+        }
+        await("The saved next drag did not start") {
+            target.events.drop(resumedEvents).any {
+                it.action == MotionEvent.ACTION_POINTER_DOWN && it.pointerIds.size == 3
+            }
+        }
+        val firstOrdinary = target.events.drop(resumedEvents).first {
+            it.action == MotionEvent.ACTION_POINTER_DOWN && it.pointerIds.size == 3
+        }.let { it.coordinates.getValue(it.actionId) }
+        assertEquals("Resume replayed the earlier tap", (centerY + 200f).roundToInt().toFloat(), firstOrdinary.second, 0f)
+        assertEquals((centerX - 100f).roundToInt().toFloat(), firstOrdinary.first, 0f)
+        assertEquals(paused.cycleCurrent, reservationSnapshot().cycleCurrent)
+        assertTrue(isPlaybackOn())
+        instrumentation.runOnMainSync { setPlayback(false) }
+        awaitReleased()
+        awaitPlaybackOff()
+    }
+
+    @Test fun testReservationRestAndToolbarPauseResumeWithGlobalToggle() {
         configureMixed(repeat = false)
         sendCommand(SungyoonHelperService.ACTION_START_RESERVATION) {
             putExtra(SungyoonHelperService.EXTRA_RUN_SEC, 2)
@@ -582,13 +680,39 @@ class HoldIntegrationTest {
         sendCommand(SungyoonHelperService.ACTION_PAUSE_RESERVATION)
         await("Reservation did not pause") { runBlocking { ReservationRuntimeStore.snapshotFlow(activity).first().paused } }
         assertTrue(isHolding())
-        instrumentation.runOnMainSync { setHold(false) }
+        assertTrue("Toolbar pause retains H, so the global control remains On", isPlaybackOn())
+        instrumentation.runOnMainSync { setPlayback(false) }
         awaitReleased()
-        sendCommand(SungyoonHelperService.ACTION_RESUME_RESERVATION) {
-            putExtra(SungyoonHelperService.EXTRA_MANUAL_RESUME, true)
+        awaitPlaybackOff()
+        val paused = reservationSnapshot()
+        assertTrue(paused.active && paused.paused)
+        assertEquals(ReservationRuntimeStore.PHASE_REST, paused.phase)
+        assertTrue(paused.pausedRemainingMs > 0)
+        SystemClock.sleep(300)
+        assertEquals("Off must freeze the remaining rest time and point offset", paused, reservationSnapshot())
+
+        tapPlaybackControl(expectedEnabled = true)
+        await("On did not restore H while resuming the remaining rest") {
+            isHolding() && reservationSnapshot().let {
+                it.active && !it.paused && it.phase == ReservationRuntimeStore.PHASE_REST
+            }
         }
-        SystemClock.sleep(3_000)
-        assertFalse("A later reservation cycle reactivated holds", isHolding())
+        assertEquals(paused.nextPointOffset, reservationSnapshot().nextPointOffset)
+        assertEquals(paused.cycleCurrent, reservationSnapshot().cycleCurrent)
+        assertTrue(isPlaybackOn())
+
+        // A new On must wait for an immediately preceding Off to finish its pause/release.
+        instrumentation.runOnMainSync { setPlayback(false); setPlayback(true) }
+        await("Rapid Off/On lost the active reservation or H") {
+            isHolding() && isPlaybackOn() && reservationSnapshot().let { it.active && !it.paused }
+        }
+        SystemClock.sleep(300)
+        assertTrue("Old Off cleanup cleared the newer On state", isPlaybackOn())
+        assertTrue("Old Off cleanup released the newer holds", isHolding())
+        assertFalse("Old Off cleanup overwrote the resumed reservation", reservationSnapshot().paused)
+        instrumentation.runOnMainSync { setPlayback(false) }
+        awaitReleased()
+        awaitPlaybackOff()
         sendCommand(SungyoonHelperService.ACTION_STOP_RESERVATION)
     }
 
@@ -605,7 +729,7 @@ class HoldIntegrationTest {
         await("The tenth contact did not lift") { target.events.any { it.action == MotionEvent.ACTION_POINTER_UP } }
         assertTrue(isHolding())
         assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL })
-        instrumentation.runOnMainSync { setHold(false) }
+        instrumentation.runOnMainSync { setPlayback(false) }
         awaitReleased()
     }
 
@@ -674,6 +798,11 @@ class HoldIntegrationTest {
         instrumentation.runOnMainSync { controls.clearAllBtn.performClick() }
         await("Clear all did not remove every pointer type") { PresetSession.state.value.points.isEmpty() }
         assertTrue(readSavedHoldCount(activity, fixtureId) == 0)
+        await("An empty preset must retain a visible, disabled playback control") {
+            var disabled = false
+            instrumentation.runOnMainSync { disabled = playbackButton().isShown && !playbackButton().isEnabled }
+            disabled
+        }
     }
 
     private fun readSavedHoldCount(context: Context, id: String) = runBlocking {
@@ -729,7 +858,7 @@ class HoldIntegrationTest {
     }
 
     private fun startAndAwaitDown() {
-        instrumentation.runOnMainSync { setHold(true) }
+        instrumentation.runOnMainSync { setPlayback(true) }
         awaitHoldDown()
     }
 
@@ -753,11 +882,40 @@ class HoldIntegrationTest {
         val downCount = target.downCount()
         SystemClock.sleep(450)
         assertFalse(isHolding())
+        assertFalse("The global control still shows On", isPlaybackOn())
         assertEquals("A stale callback restarted the hold", downCount, target.downCount())
     }
 
-    private fun setHold(enabled: Boolean) {
-        SungyoonHelperService::class.java.getDeclaredMethod("setHoldEnabled", Boolean::class.javaPrimitiveType).apply {
+    private fun playbackButton(): TextView {
+        val controller = serviceField("floatingToggle")!!
+        return controller.javaClass.getDeclaredField("playbackButton").apply { isAccessible = true }
+            .get(controller) as TextView
+    }
+
+    private fun isPlaybackOn(): Boolean {
+        var on = false
+        instrumentation.runOnMainSync {
+            val controller = serviceField("floatingToggle")
+            val button = controller?.javaClass?.getDeclaredField("playbackButton")
+                ?.apply { isAccessible = true }?.get(controller) as? TextView
+            on = button?.text?.toString() == "On"
+        }
+        return on
+    }
+
+    private fun awaitPlaybackOff() {
+        await("Playback did not finish its Off transition") {
+            !isPlaybackOn() && !isHolding() &&
+                (serviceField("executionCommand") as? kotlinx.coroutines.Job)?.isActive != true &&
+                (serviceField("runnerJob") as? kotlinx.coroutines.Job)?.isActive != true &&
+                (serviceField("reservationJob") as? kotlinx.coroutines.Job)?.isActive != true
+        }
+    }
+
+    private fun reservationSnapshot() = runBlocking { ReservationRuntimeStore.snapshotFlow(activity).first() }
+
+    private fun setPlayback(enabled: Boolean) {
+        SungyoonHelperService::class.java.getDeclaredMethod("setPlaybackEnabled", Boolean::class.javaPrimitiveType).apply {
             isAccessible = true
             invoke(service, enabled)
         }
