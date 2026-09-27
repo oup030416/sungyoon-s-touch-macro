@@ -5,6 +5,7 @@ import android.accessibilityservice.GestureDescription
 import android.graphics.Path
 import android.os.Build
 import android.util.Log
+import android.view.MotionEvent
 import androidx.annotation.MainThread
 import com.sungyoon.helper.model.HighlightingPoint
 import kotlinx.coroutines.CancellationException
@@ -33,6 +34,7 @@ class HoldGestureRunner internal constructor(
 
     private var mergedInput: MergedTouchSession? = null
     val mergesPhysicalInput: Boolean get() = mergedInput?.active == true
+    fun onMotionEvent(event: MotionEvent) { mergedInput?.onMotionEvent(event) }
 
     val isSupported: Boolean get() = backend.isSupported
     val maxHoldCount: Int get() = min(9, backend.maxStrokeCount - 1).coerceAtLeast(0)

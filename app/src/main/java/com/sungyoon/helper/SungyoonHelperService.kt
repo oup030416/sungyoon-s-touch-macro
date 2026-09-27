@@ -488,6 +488,10 @@ class SungyoonHelperService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
+    override fun onMotionEvent(event: android.view.MotionEvent) {
+        holdRunner?.onMotionEvent(event)
+    }
+
     override fun onInterrupt() {
         cancelExecutionCommand()
         requestHoldOff()

@@ -33,6 +33,7 @@ internal class MergedTouchSession(
     private var heartbeat: Job? = null
     private var actionJob: Job? = null
     private var previousFlags = 0
+    private var previousMotionSources = 0
     private var stopCapture: (() -> Unit)? = null
     private var downTime = 0L
     private var epoch = 0L
@@ -92,14 +93,20 @@ internal class MergedTouchSession(
         try {
             val info = checkNotNull(service.serviceInfo)
             previousFlags = info.flags
-            val controller = service.getTouchInteractionController(android.view.Display.DEFAULT_DISPLAY)
-            val callback = object : TouchInteractionController.Callback {
-                override fun onMotionEvent(event: MotionEvent) = this@MergedTouchSession.onMotionEvent(event)
-                override fun onStateChanged(state: Int) = Unit
+            if (Build.VERSION.SDK_INT >= 34) {
+                // Capture raw touch without changing other apps' touch-exploration behavior.
+                previousMotionSources = info.motionEventSources
+                info.setMotionEventSources(previousMotionSources or InputDevice.SOURCE_TOUCHSCREEN)
+            } else {
+                val controller = service.getTouchInteractionController(android.view.Display.DEFAULT_DISPLAY)
+                val callback = object : TouchInteractionController.Callback {
+                    override fun onMotionEvent(event: MotionEvent) = this@MergedTouchSession.onMotionEvent(event)
+                    override fun onStateChanged(state: Int) = Unit
+                }
+                controller.registerCallback(null, callback)
+                stopCapture = { controller.unregisterCallback(callback) }
+                info.flags = previousFlags or AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
             }
-            controller.registerCallback(null, callback)
-            stopCapture = { controller.unregisterCallback(callback) }
-            info.flags = previousFlags or AccessibilityServiceInfo.FLAG_REQUEST_TOUCH_EXPLORATION_MODE
             service.serviceInfo = info
         } catch (_: Exception) { disconnect(); failed(); return false }
         writer = scope.launch(Dispatchers.IO) {
@@ -137,8 +144,10 @@ internal class MergedTouchSession(
         }
         try {
             // Wait for touch capture to take effect before injecting the first DOWN.
-            withTimeout(2000) {
-                while (!accessibility.isTouchExplorationEnabled) delay(25)
+            if (Build.VERSION.SDK_INT < 34) {
+                withTimeout(2000) {
+                    while (!accessibility.isTouchExplorationEnabled) delay(25)
+                }
             }
             delay(100)
             currentCoroutineContext().ensureActive()
@@ -267,7 +276,11 @@ internal class MergedTouchSession(
             // The framework may already have removed the connection during onDestroy.
             runCatching {
                 service.serviceInfo?.let { info ->
-                    info.flags = previousFlags
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        info.setMotionEventSources(previousMotionSources)
+                    } else {
+                        info.flags = previousFlags
+                    }
                     service.serviceInfo = info
                 }
             }
