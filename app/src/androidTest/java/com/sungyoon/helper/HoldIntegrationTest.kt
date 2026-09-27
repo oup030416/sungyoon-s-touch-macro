@@ -211,8 +211,7 @@ class HoldIntegrationTest {
         instrumentation.runOnMainSync { setPlayback(true) }
         await("On after a cancelled command chain did not start") { target.downCount() > completedStarts && isHolding() }
         SystemClock.sleep(300)
-        assertTrue("An older Off cleanup released the newest holds", isHolding())
-        assertTrue("An older command cleared the newest On state", isPlaybackOn())
+        assertTrue("An older Off cleanup stopped the newest playback", isPlaybackOn())
         instrumentation.runOnMainSync { setPlayback(false) }
         awaitReleased()
         var down = false
@@ -466,35 +465,31 @@ class HoldIntegrationTest {
         }
     }
 
-    @Test fun testTwoHoldsContinueAcrossTapsAndSegmentedDrag() {
+    @Test fun testTwoHoldsReleaseForEachActionAndResumeAfterwards() {
         configureMixed(repeat = false)
         tapPlaybackControl(expectedEnabled = true)
         await("The ordinary drag did not finish") {
-            target.events.count { it.action == MotionEvent.ACTION_POINTER_UP } >= 2
+            target.events.count { it.action == MotionEvent.ACTION_UP } >= 4
         }
         await("The ordinary sequence did not finish") {
             runBlocking { !SequencePrefsStore.sequenceRunningFlow(activity).first() }
         }
         assertTrue("Completion must leave holds On", isHolding())
         assertTrue("The global control must stay On while holds remain", isPlaybackOn())
-        val holdIds = target.events.first { it.pointerIds.size == 2 }.pointerIds.toSet()
-        assertEquals(2, holdIds.size)
-        assertTrue(target.events.filter { it.action == MotionEvent.ACTION_POINTER_UP }.all { it.actionId !in holdIds })
-        assertFalse(target.events.any { it.action == MotionEvent.ACTION_UP || it.action == MotionEvent.ACTION_CANCEL })
-        assertEquals(1, target.downCount())
-        target.events.filter { it.pointerIds.size >= 2 }.forEach {
-            assertTrue("A continued hold contact disappeared", it.pointerIds.containsAll(holdIds))
-        }
-        assertTrue("The ordinary drag did not move while holding", target.events.any {
-            it.action == MotionEvent.ACTION_MOVE && it.coordinates.any { (id, xy) -> id !in holdIds && xy.first > centerX + 60f }
+        assertEquals("Expected holds, tap, holds, drag, holds", 5, target.downCount())
+        assertEquals(3, target.events.count { it.action == MotionEvent.ACTION_POINTER_DOWN })
+        assertTrue("Ordinary input must not overlap held contacts", target.events.all { it.pointerIds.size <= 2 })
+        assertTrue("The ordinary drag did not move", target.events.any {
+            it.action == MotionEvent.ACTION_MOVE && it.pointerIds.size == 1 &&
+                abs(it.y - (centerY + 200f)) < 2f && it.x > centerX + 60f
         })
         instrumentation.runOnMainSync { setPlayback(false) }
         awaitReleased()
-        assertEquals(1, target.events.count { it.action == MotionEvent.ACTION_UP })
+        assertEquals(5, target.events.count { it.action == MotionEvent.ACTION_UP })
         assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL })
     }
 
-    @Test fun testHoldClicksStandardButtonWithoutAddingAnotherContact() {
+    @Test fun testHoldReleasesForStandardButtonClickAndResumes() {
         val clicks = java.util.concurrent.atomic.AtomicInteger()
         lateinit var button: Button
         instrumentation.runOnMainSync {
@@ -533,10 +528,9 @@ class HoldIntegrationTest {
         await("The ordinary sequence did not finish") {
             runBlocking { !SequencePrefsStore.sequenceRunningFlow(activity).first() }
         }
-        assertTrue("The click released the hold", isHolding())
-        assertEquals(1, target.downCount())
-        assertEquals(0, target.endCount())
-        assertFalse("The semantic click also injected a tap", target.events.any { it.pointerIds.size > 1 })
+        assertTrue("The hold did not resume after the click", isHolding())
+        assertEquals(2, target.downCount())
+        assertEquals(1, target.endCount())
         instrumentation.runOnMainSync { setPlayback(false) }
         awaitReleased()
         assertEquals(1, clicks.get())
@@ -576,7 +570,11 @@ class HoldIntegrationTest {
     @Test fun testMixedFloatingOffStopsOrdinarySequenceAndHolds() {
         configureMixed(repeat = true)
         tapPlaybackControl(expectedEnabled = true)
-        await("Mixed playback did not start") { target.events.any { it.pointerIds.size == 3 } }
+        await("The ordinary drag did not enter its temporary hold release") {
+            !isHolding() && target.events.any {
+                it.action == MotionEvent.ACTION_DOWN && abs(it.y - (centerY + 200f)) < 2f
+            }
+        }
         assertTrue(isPlaybackOn())
         tapPlaybackControl(expectedEnabled = false)
         awaitReleased()
@@ -647,7 +645,7 @@ class HoldIntegrationTest {
         org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("hardwareTouch") == "true")
         configureMixed(repeat = true)
         sendCommand(SungyoonHelperService.ACTION_START_SEQUENCE)
-        await("Mixed playback did not start") { target.events.any { it.pointerIds.size == 3 } }
+        await("Mixed playback did not start") { isHolding() && target.events.any { it.pointerIds.size == 2 } }
         instrumentation.sendStatus(0, android.os.Bundle().apply {
             putString("stream", "HARDWARE_TOUCH_READY ${(centerX + 170f).roundToInt()} ${(centerY + 180f).roundToInt()}\n")
         })
@@ -696,11 +694,11 @@ class HoldIntegrationTest {
         }
         await("The saved next drag did not start") {
             target.events.drop(resumedEvents).any {
-                it.action == MotionEvent.ACTION_POINTER_DOWN && it.pointerIds.size == 3
+                it.action == MotionEvent.ACTION_DOWN && abs(it.y - (centerY + 200f)) < 2f
             }
         }
         val firstOrdinary = target.events.drop(resumedEvents).first {
-            it.action == MotionEvent.ACTION_POINTER_DOWN && it.pointerIds.size == 3
+            it.action == MotionEvent.ACTION_DOWN && abs(it.y - (centerY + 200f)) < 2f
         }.let { it.coordinates.getValue(it.actionId) }
         assertEquals("Resume replayed the earlier tap", (centerY + 200f).roundToInt().toFloat(), firstOrdinary.second, 0f)
         assertEquals((centerX - 100f).roundToInt().toFloat(), firstOrdinary.first, 0f)
@@ -1046,12 +1044,6 @@ class HoldIntegrationTest {
         init {
             setBackgroundColor(Color.rgb(30, 36, 45))
             isClickable = true
-        }
-
-        override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
-            super.onInitializeAccessibilityNodeInfo(info)
-            // This raw-input target has no click action; exercise gesture fallback explicitly.
-            info.removeAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {

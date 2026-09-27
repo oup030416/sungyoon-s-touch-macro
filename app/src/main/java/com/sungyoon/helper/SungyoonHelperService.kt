@@ -5,14 +5,12 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Rect
 import android.util.Log
 import com.sungyoon.helper.data.PresetSession
 import com.sungyoon.helper.service.HoldGestureRunner
 import kotlinx.coroutines.CoroutineExceptionHandler
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
-import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.content.ContextCompat
 import com.sungyoon.helper.data.DragDurationStore
 import com.sungyoon.helper.data.PointerSizeStore
@@ -25,7 +23,6 @@ import com.sungyoon.helper.data.TapIntervalStore
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_HOLD
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
-import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_TAP
 import com.sungyoon.helper.overlay.floating.FloatingToggleOverlayController
 import com.sungyoon.helper.service.highlight.SequenceOverlayController
 import kotlinx.coroutines.CoroutineScope
@@ -36,7 +33,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -600,13 +599,28 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
     private suspend fun executePointAction(point: HighlightingPoint, label: String) {
+        val runner = holdRunner ?: return
+        val restoreHolds = runner.isRunning
+        val expectedHoldGeneration = holdGeneration
+        if (restoreHolds) runner.stopAndAwait()
+        currentCoroutineContext().ensureActive()
+        val completed = executePointGesture(point, label)
+        // Re-hold only after a successful ordinary gesture. Off, physical cancellation,
+        // management, preset changes and teardown invalidate this action's resume request.
+        currentCoroutineContext().ensureActive()
+        if (restoreHolds && completed && runner === holdRunner && expectedHoldGeneration == holdGeneration) {
+            startRegisteredHolds(expectedHoldGeneration)
+        }
+    }
+
+    private suspend fun executePointGesture(point: HighlightingPoint, label: String): Boolean {
         if (isDragAction(point)) {
             val durationMs = dragDurationMs(point)
             if (touchAnimationEnabled) {
                 syncOverlayPointerRadius()
                 overlay?.moveTo(point.x, point.y, label = label)
                 overlay?.triggerPop()
-                coroutineScope {
+                val completed = coroutineScope {
                     val visualJob = launch {
                         overlay?.animateDragRealtime(
                             fromX = point.x,
@@ -617,24 +631,26 @@ class SungyoonHelperService : AccessibilityService() {
                             label = label
                         )
                     }
-                    holdRunner?.drag(
+                    val completed = holdRunner?.drag(
                         fromX = point.x,
                         fromY = point.y,
                         toX = point.dragToX,
                         toY = point.dragToY,
                         durationMs = durationMs
-                    )
+                    ) == true
                     visualJob.cancelAndJoin()
+                    completed
                 }
                 overlay?.moveTo(point.dragToX, point.dragToY, label = label)
+                return completed
             } else {
-                holdRunner?.drag(
+                return holdRunner?.drag(
                     fromX = point.x,
                     fromY = point.y,
                     toX = point.dragToX,
                     toY = point.dragToY,
                     durationMs = durationMs
-                )
+                ) == true
             }
         } else {
             val (tapX, tapY) = resolveTapTarget(point)
@@ -643,52 +659,7 @@ class SungyoonHelperService : AccessibilityService() {
                 overlay?.moveTo(tapX, tapY, label = label)
                 overlay?.triggerPop()
             }
-            if (point.actionType == ACTION_TYPE_TAP && holdRunner?.isRunning == true &&
-                clickAccessibleTarget(tapX, tapY)
-            ) {
-                // Match the ordinary tap duration without introducing another touch contact.
-                delay(50L)
-            } else {
-                holdRunner?.tap(tapX, tapY)
-            }
-        }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun clickAccessibleTarget(x: Float, y: Float): Boolean {
-        var visited = 0
-        fun findTarget(node: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
-            check(++visited <= 256 && depth <= 40) { "Accessibility target search limit exceeded" }
-            if (!node.isVisibleToUser || !node.isEnabled) return null
-            val bounds = Rect()
-            node.getBoundsInScreen(bounds)
-            if (x < bounds.left || x >= bounds.right || y < bounds.top || y >= bounds.bottom) return null
-            // Prefer the deepest matching control; inspect later children first for overlaps.
-            for (index in node.childCount - 1 downTo 0) {
-                val child = node.getChild(index) ?: continue
-                try {
-                    findTarget(child, depth + 1)?.let { return it }
-                } finally {
-                    child.recycle()
-                }
-            }
-            return if (node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }) {
-                AccessibilityNodeInfo.obtain(node)
-            } else null
-        }
-
-        return try {
-            val root = rootInActiveWindow ?: return false
-            val target = try { findTarget(root, 0) } finally { root.recycle() } ?: return false
-            try {
-                target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
-            } finally {
-                target.recycle()
-            }
-        } catch (error: RuntimeException) {
-            // A changing/inaccessible window must not interrupt holds or the ordinary sequence.
-            Log.w(TAG, "Accessible click unavailable; falling back to the gesture", error)
-            false
+            return holdRunner?.tap(tapX, tapY) == true
         }
     }
 
