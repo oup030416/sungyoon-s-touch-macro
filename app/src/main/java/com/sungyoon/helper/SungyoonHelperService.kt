@@ -33,9 +33,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
@@ -599,28 +597,13 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
     private suspend fun executePointAction(point: HighlightingPoint, label: String) {
-        val runner = holdRunner ?: return
-        val restoreHolds = runner.isRunning
-        val expectedHoldGeneration = holdGeneration
-        if (restoreHolds) runner.stopAndAwait()
-        currentCoroutineContext().ensureActive()
-        val completed = executePointGesture(point, label)
-        // Re-hold only after a successful ordinary gesture. Off, physical cancellation,
-        // management, preset changes and teardown invalidate this action's resume request.
-        currentCoroutineContext().ensureActive()
-        if (restoreHolds && completed && runner === holdRunner && expectedHoldGeneration == holdGeneration) {
-            startRegisteredHolds(expectedHoldGeneration)
-        }
-    }
-
-    private suspend fun executePointGesture(point: HighlightingPoint, label: String): Boolean {
         if (isDragAction(point)) {
             val durationMs = dragDurationMs(point)
             if (touchAnimationEnabled) {
                 syncOverlayPointerRadius()
                 overlay?.moveTo(point.x, point.y, label = label)
                 overlay?.triggerPop()
-                val completed = coroutineScope {
+                coroutineScope {
                     val visualJob = launch {
                         overlay?.animateDragRealtime(
                             fromX = point.x,
@@ -631,26 +614,24 @@ class SungyoonHelperService : AccessibilityService() {
                             label = label
                         )
                     }
-                    val completed = holdRunner?.drag(
+                    holdRunner?.drag(
                         fromX = point.x,
                         fromY = point.y,
                         toX = point.dragToX,
                         toY = point.dragToY,
                         durationMs = durationMs
-                    ) == true
+                    )
                     visualJob.cancelAndJoin()
-                    completed
                 }
                 overlay?.moveTo(point.dragToX, point.dragToY, label = label)
-                return completed
             } else {
-                return holdRunner?.drag(
+                holdRunner?.drag(
                     fromX = point.x,
                     fromY = point.y,
                     toX = point.dragToX,
                     toY = point.dragToY,
                     durationMs = durationMs
-                ) == true
+                )
             }
         } else {
             val (tapX, tapY) = resolveTapTarget(point)
@@ -659,7 +640,7 @@ class SungyoonHelperService : AccessibilityService() {
                 overlay?.moveTo(tapX, tapY, label = label)
                 overlay?.triggerPop()
             }
-            return holdRunner?.tap(tapX, tapY) == true
+            holdRunner?.tap(tapX, tapY)
         }
     }
 
