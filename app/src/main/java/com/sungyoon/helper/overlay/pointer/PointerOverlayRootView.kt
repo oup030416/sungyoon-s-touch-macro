@@ -1011,7 +1011,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private fun updateAllTapPointerRadii() {
         val tapRadiusPx = tapPointerDrawRadiusPx()
         for (point in lastPoints) {
-            if (point.actionType != ACTION_TYPE_DRAG) {
+            if (point.actionType != ACTION_TYPE_DRAG && point.actionType != ACTION_TYPE_HOLD) {
                 views[point.id]?.setDrawRadiusPx(tapRadiusPx)
             }
         }
@@ -1204,10 +1204,11 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         for (p in points) {
             val startView = ensureHandleView(p.id, Endpoint.START)
-            val startRadius = if (p.actionType == ACTION_TYPE_DRAG) {
-                dragHandleDrawRadiusPx
-            } else {
-                tapPointerDrawRadiusPx()
+            val startRadius = when (p.actionType) {
+                ACTION_TYPE_DRAG -> dragHandleDrawRadiusPx
+                // Holds have no random-radius ring, so always draw their circular marker.
+                ACTION_TYPE_HOLD -> pointerDrawRadiusPx
+                else -> tapPointerDrawRadiusPx()
             }
             startView.setDrawRadiusPx(startRadius)
             startView.setLabel(labelProvider(p.id, Endpoint.START))
