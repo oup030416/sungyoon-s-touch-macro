@@ -50,6 +50,12 @@
         </receiver>
 
         <provider
+            android:name=".service.ShellTouchProvider"
+            android:authorities="${applicationId}.touchbridge"
+            android:exported="true"
+            android:permission="android.permission.DUMP" />
+
+        <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
             android:exported="false"

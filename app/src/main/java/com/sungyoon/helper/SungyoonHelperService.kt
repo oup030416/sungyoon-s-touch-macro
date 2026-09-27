@@ -107,6 +107,7 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
     private fun onPhysicalTouch() {
+        if (holdRunner?.mergesPhysicalInput == true) return
         holdGeneration++
         holdRunner?.cancelFromPhysicalInput()
     }

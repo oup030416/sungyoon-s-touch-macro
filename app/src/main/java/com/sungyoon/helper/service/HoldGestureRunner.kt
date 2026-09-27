@@ -27,7 +27,12 @@ class HoldGestureRunner internal constructor(
         service: AccessibilityService,
         onStateChanged: (Boolean) -> Unit,
         onFailure: () -> Unit = {}
-    ) : this(AndroidHoldGestureBackend(service), onStateChanged, onFailure)
+    ) : this(AndroidHoldGestureBackend(service), onStateChanged, onFailure) {
+        mergedInput = MergedTouchSession(service, ::setRunning, onFailure)
+    }
+
+    private var mergedInput: MergedTouchSession? = null
+    val mergesPhysicalInput: Boolean get() = mergedInput?.active == true
 
     val isSupported: Boolean get() = backend.isSupported
     val maxHoldCount: Int get() = min(9, backend.maxStrokeCount - 1).coerceAtLeast(0)
@@ -73,7 +78,10 @@ class HoldGestureRunner internal constructor(
     /** The caller owns this start request; cancellation releases any accepted first chunk. */
     suspend fun startHolds(points: List<HighlightingPoint>): Boolean {
         currentCoroutineContext().ensureActive()
+        if (disconnected) return false
         if (points.map { it.id }.distinct().size != points.size) return false
+        if (points.size !in 1..maxHoldCount || points.any { !validCoordinate(it.x, it.y) }) return false
+        if (holds == null) mergedInput?.start(points)?.let { return it }
         val request = beginHolds(points.map { Location(it.x, it.y) }) ?: return false
         return try {
             request.started.await()
@@ -85,6 +93,7 @@ class HoldGestureRunner internal constructor(
 
     /** Wait for an existing request without taking ownership of its cancellation. */
     suspend fun awaitHoldsStarted(): Boolean {
+        if (mergesPhysicalInput) return mergedInput?.holding == true
         val request = holds ?: return false
         return request.started.await()
     }
@@ -105,10 +114,12 @@ class HoldGestureRunner internal constructor(
 
     /** Release only the hold contacts; an ordinary tap or drag keeps its stroke identity. */
     fun stop() {
+        if (mergesPhysicalInput) { mergedInput?.stopHolds(); return }
         holds?.let { releaseHolds(it) }
     }
 
     suspend fun stopAndAwait() {
+        if (mergesPhysicalInput) { mergedInput?.stopHolds(); mergedInput?.flush(); return }
         val request = holds ?: return
         releaseHolds(request)
         request.released.await()
@@ -127,6 +138,7 @@ class HoldGestureRunner internal constructor(
         if (!validCoordinate(fromX, fromY) || !validCoordinate(toX, toY) || durationMs <= 0L ||
             durationMs > backend.maxGestureDurationMs
         ) return@withLock false
+        if (mergesPhysicalInput) return@withLock mergedInput!!.action(fromX, fromY, toX, toY, durationMs)
         // A cancelled caller releases the mutex before its final continuation completes.
         // The next caller must wait for that contact to lift before adding a fresh stroke.
         action?.released?.await()
@@ -144,11 +156,13 @@ class HoldGestureRunner internal constructor(
     }
 
     fun cancelAction() {
+        if (mergesPhysicalInput) { mergedInput?.cancelAction(); return }
         action?.let { releaseAction(it) }
     }
 
     /** Some Android versions cancel target input without cancelling gesture-result callbacks. */
     fun cancelFromPhysicalInput() {
+        if (mergesPhysicalInput) return
         val oldHolds = holds
         val oldAction = action
         oldHolds?.let { releaseHolds(it, pumpNext = false) }
@@ -157,6 +171,12 @@ class HoldGestureRunner internal constructor(
     }
 
     suspend fun stopAllAndAwait() {
+        if (mergesPhysicalInput) {
+            mergedInput?.cancelAction()
+            mergedInput?.stopHolds()
+            mergedInput?.flush()
+            return
+        }
         val oldHolds = holds
         val oldAction = action
         oldHolds?.let { releaseHolds(it, pumpNext = false) }
@@ -168,6 +188,7 @@ class HoldGestureRunner internal constructor(
 
     /** The framework cancels input on disconnect and can discard its pending result callback. */
     fun onServiceDisconnected() {
+        mergedInput?.dispose()
         disconnected = true
         abortStream(notifyFailure = false)
     }

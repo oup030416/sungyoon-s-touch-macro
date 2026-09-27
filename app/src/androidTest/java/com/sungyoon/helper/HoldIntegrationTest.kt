@@ -591,6 +591,66 @@ class HoldIntegrationTest {
         assertFalse(isHolding())
     }
 
+    @Test fun testMergedBridgeKeepsHoldsDuringPhysicalDrag() {
+        // Host: start tools/start-touch-bridge.ps1 on MERGED_BRIDGE_START, then use emulator
+        // console mouse input for the drag and floating Off coordinates reported below.
+        org.junit.Assume.assumeTrue(android.os.Build.VERSION.SDK_INT >= 33)
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("hardwareTouch") == "true")
+        instrumentation.sendStatus(0, android.os.Bundle().apply { putString("stream", "MERGED_BRIDGE_START\n") })
+        await("Start the adb touch bridge", 15_000) {
+            com.sungyoon.helper.service.ShellTouchProvider.getBridge() != null
+        }
+        configureMixed(repeat = false)
+        instrumentation.runOnMainSync { setPlayback(true) }
+        await("The shell bridge did not activate") {
+            (serviceField("holdRunner") as HoldGestureRunner).mergesPhysicalInput
+        }
+        await("The ordinary sequence did not finish") {
+            target.events.count { it.action == MotionEvent.ACTION_POINTER_UP && it.actionId == 9 } >= 2
+        }
+        val holdIds = setOf(0, 1)
+        val before = target.events.size
+        instrumentation.sendStatus(0, android.os.Bundle().apply {
+            putString("stream", "MERGED_DRAG_READY ${centerX.roundToInt()} ${(centerY + 200f).roundToInt()}\n")
+        })
+        await("The physical drag did not reach the merged stream", 15_000) {
+            target.events.drop(before).any { it.action == MotionEvent.ACTION_POINTER_UP && it.actionId >= 10 }
+        }
+        assertTrue("Physical input released the holds", isHolding())
+        val physical = target.events.drop(before)
+        assertTrue(physical.any { it.action == MotionEvent.ACTION_MOVE && it.coordinates.any { (id, xy) ->
+            id >= 10 && xy.first > centerX + 50f
+        } })
+        assertTrue(physical.all { it.pointerIds.containsAll(holdIds) })
+        assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL || it.action == MotionEvent.ACTION_UP })
+        assertEquals(1, target.downCount())
+        val buttonLocation = IntArray(2)
+        instrumentation.runOnMainSync {
+            val button = playbackButton()
+            button.getLocationOnScreen(buttonLocation)
+            buttonLocation[0] += button.width / 2
+            buttonLocation[1] += button.height / 2
+        }
+        instrumentation.sendStatus(0, android.os.Bundle().apply {
+            putString("stream", "MERGED_OFF_READY ${buttonLocation[0]} ${buttonLocation[1]}\n")
+        })
+        awaitReleased()
+        awaitPlaybackOff()
+        assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL })
+        instrumentation.runOnMainSync { setPlayback(true) }
+        await("Could not restart merged holds") { isHolding() }
+        instrumentation.runOnMainSync { setPlayback(false); setPlayback(true) }
+        await("Rapid toggle lost merged holds") { isHolding() }
+        SystemClock.sleep(600)
+        assertTrue("Stale cleanup released new holds", isHolding())
+        instrumentation.runOnMainSync { service.onInterrupt() }
+        awaitReleased()
+        awaitPlaybackOff()
+        await("Touch capture was not restored after interruption") {
+            !activity.getSystemService(android.view.accessibility.AccessibilityManager::class.java).isTouchExplorationEnabled
+        }
+    }
+
     @Test fun testPhysicalCancellationDropsOnlyHoldsAndDoesNotReactivateThem() {
         // A host must inject an emulator-console mouse down/up when this status arrives.
         // UiAutomation injection is not hardware input and does not reliably cancel gestures.
