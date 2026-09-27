@@ -46,6 +46,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         dp(PointerSizeSpec.radiusDpForLevel(PointerSizeSpec.DEFAULT_LEVEL)).toFloat()
     private var pointerSizeLevel: Int = PointerSizeSpec.DEFAULT_LEVEL
     private var pointerDrawRadiusPx: Float = dragHandleDrawRadiusPx
+    private val defaultTapPointerDrawRadiusPx = 10f * density
 
     private var panelVisible: Boolean = true
     private val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -551,8 +552,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         }
 
         // ✅ 재생성 없이 기존 포인터들의 draw radius만 갱신
-        for (v in views.values) {
-            v.setDrawRadiusPx(pointerDrawRadiusPx)
+        for (point in lastPoints) {
+            val radius = if (point.actionType == ACTION_TYPE_HOLD) defaultTapPointerDrawRadiusPx else pointerDrawRadiusPx
+            views[point.id]?.setDrawRadiusPx(radius)
         }
         for (v in dragEndViews.values) {
             v.setDrawRadiusPx(pointerDrawRadiusPx)
@@ -1004,9 +1006,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         return raw.toFloatOrNull()
     }
 
-    private fun tapPointerRadiusDp(): Int = if (randomTouchRadiusDp <= 0) 10 else 0
-
-    private fun tapPointerDrawRadiusPx(): Float = tapPointerRadiusDp() * density
+    private fun tapPointerDrawRadiusPx(): Float =
+        if (randomTouchRadiusDp <= 0) defaultTapPointerDrawRadiusPx else 0f
 
     private fun updateAllTapPointerRadii() {
         val tapRadiusPx = tapPointerDrawRadiusPx()
@@ -1206,8 +1207,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             val startView = ensureHandleView(p.id, Endpoint.START)
             val startRadius = when (p.actionType) {
                 ACTION_TYPE_DRAG -> dragHandleDrawRadiusPx
-                // Holds have no random-radius ring, so always draw their circular marker.
-                ACTION_TYPE_HOLD -> pointerDrawRadiusPx
+                // Holds keep the fixed marker of a tap with no random radius.
+                ACTION_TYPE_HOLD -> defaultTapPointerDrawRadiusPx
                 else -> tapPointerDrawRadiusPx()
             }
             startView.setDrawRadiusPx(startRadius)
