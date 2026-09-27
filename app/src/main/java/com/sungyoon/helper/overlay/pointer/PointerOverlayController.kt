@@ -35,6 +35,7 @@ import com.sungyoon.helper.data.ReservationRuntimeStore
 import com.sungyoon.helper.data.SequencePrefsStore
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
+import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_HOLD
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_TAP
 import com.sungyoon.helper.model.PresetEntry
 import kotlinx.coroutines.CoroutineScope
@@ -111,6 +112,7 @@ class PointerOverlayController(private val app: Context) {
 
             setOnAddClick { performAddPointer() }
             setOnAddDragClick { performAddDragPointer() }
+            setOnAddHoldClick { addPointer(ACTION_TYPE_HOLD) }
 
             // ✅ 추가: 패널 표시 상태가 바뀔 때마다 Store에 저장
             setOnControlPanelVisibleChanged { visible ->
@@ -126,7 +128,7 @@ class PointerOverlayController(private val app: Context) {
             setOnReservationStartClick { runSec, restSec, repeatCount ->
                 launchCommand {
                     flushPendingLocked()
-                    if (!PresetSession.state.value.ready || PresetSession.state.value.isHold) return@launchCommand
+                    if (!PresetSession.state.value.ready) return@launchCommand
                     val active = ReservationRuntimeStore.activeFlow(app).first()
                     val paused = ReservationRuntimeStore.pausedFlow(app).first()
                     if (active) {
@@ -201,10 +203,8 @@ class PointerOverlayController(private val app: Context) {
             setOnClearAllClick {
                 val sourceId = PresetSession.state.value.activeId
                 launchCommand {
-                    if (!PresetSession.state.value.isHold) {
-                        PresetSession.editPoints(app, sourceId) { emptyList() }
-                        toast(app.getString(R.string.toast_clear_all_done))
-                    }
+                    PresetSession.editPoints(app, sourceId) { emptyList() }
+                    toast(app.getString(R.string.toast_clear_all_done))
                 }
             }
 
@@ -233,7 +233,6 @@ class PointerOverlayController(private val app: Context) {
 
             setOnPresetDeleteClick { presetId ->
                 val preset = latestPresets.firstOrNull { it.id == presetId } ?: return@setOnPresetDeleteClick
-                if (preset.isHold) return@setOnPresetDeleteClick
                 showConfirmationDialog(
                     title = app.getString(R.string.preset_delete_title),
                     message = app.getString(R.string.preset_delete_message),
@@ -253,9 +252,7 @@ class PointerOverlayController(private val app: Context) {
                 if (PresetSession.state.value.activeId != presetId) {
                     launchCommand {
                         flushPendingLocked()
-                        val view = root ?: return@launchCommand
-                        val (sx, sy) = view.localCenterToScreen(view.width / 2f, view.height / 2f)
-                        PresetSession.activate(app, presetId, sx, sy)
+                        PresetSession.activate(app, presetId)
                     }
                 }
             }
@@ -294,10 +291,8 @@ class PointerOverlayController(private val app: Context) {
             setOnDeletePointClick { id ->
                 val sourceId = PresetSession.state.value.activeId
                 launchCommand {
-                    if (!PresetSession.state.value.isHold) {
-                        PresetSession.editPoints(app, sourceId) { points -> points.filterNot { it.id == id } }
-                        toast(app.getString(R.string.toast_pointer_deleted))
-                    }
+                    PresetSession.editPoints(app, sourceId) { points -> points.filterNot { it.id == id } }
+                    toast(app.getString(R.string.toast_pointer_deleted))
                 }
             }
         }
@@ -334,7 +329,7 @@ class PointerOverlayController(private val app: Context) {
         collectStarted = false
 
         val rootView = root ?: return
-        rootView.setEditingState(ready = false, hold = false)
+        rootView.setEditingState(ready = false)
         rootView.doOnLayout { initializeAfterLayout() }
         collectStartFallbackJob?.cancel()
         collectStartFallbackJob = scope.launch {
@@ -364,7 +359,7 @@ class PointerOverlayController(private val app: Context) {
                 if (presetVisiblePref) {
                     v.openPresetPanel()
                     v.closeReservationPanel()
-                } else if (reservationVisiblePref && !PresetSession.state.value.isHold) {
+                } else if (reservationVisiblePref) {
                     v.openReservationPanel()
                     scope.launch { loadReservationPrefsInto(v) } // ✅ 예약값 복원 주입
                 } else {
@@ -513,7 +508,7 @@ class PointerOverlayController(private val app: Context) {
 
         launchCommand {
             flushPendingLocked()
-            if (!PresetSession.state.value.ready || PresetSession.state.value.isHold) return@launchCommand
+            if (!PresetSession.state.value.ready) return@launchCommand
             ensurePointsLoaded()
             if (latestPoints.isEmpty()) {
                 toast(app.getString(R.string.toast_points_required))
@@ -540,7 +535,7 @@ class PointerOverlayController(private val app: Context) {
         collectJob?.cancel()
         collectJob = scope.launch {
             PresetSession.state.collectLatest { state ->
-                v.setEditingState(state.ready, state.isHold)
+                v.setEditingState(state.ready)
                 if (!state.ready) {
                     v.setSelectedPresetId(null)
                     return@collectLatest
@@ -558,17 +553,22 @@ class PointerOverlayController(private val app: Context) {
                 touchAnimEnabled = settings.touchAnimationEnabled
                 v.setTapIntervalSeconds(tapIntervalMs / 1000f)
                 v.setDragDurationSeconds(dragDurationMs / 1000f)
-                v.setRandomTouchRadiusDp(if (state.isHold) 0 else randomTouchRadiusDp)
+                v.setRandomTouchRadiusDp(randomTouchRadiusDp)
                 v.setRepeatEnabled(repeatEnabled)
                 v.setTouchAnimationEnabled(touchAnimEnabled)
                 val sorted = points.sortedBy { it.index }
                 val labelMap = HashMap<String, String>(sorted.size)
-                sorted.forEachIndexed { i, p -> labelMap[p.id] = "${i + 1}" }
+                var holdNumber = 0
+                var actionNumber = 0
+                sorted.forEach { p ->
+                    labelMap[p.id] = if (p.actionType == ACTION_TYPE_HOLD)
+                        app.getString(R.string.hold_pointer_label, ++holdNumber) else "${++actionNumber}"
+                }
 
                 v.syncPoints(
                     points = points,
                     labelProvider = { id, endpoint ->
-                        val base = if (state.isHold) app.getString(R.string.hold_pointer_label) else labelMap[id].orEmpty()
+                        val base = labelMap[id].orEmpty()
                         if (endpoint == PointerOverlayRootView.Endpoint.END) "${base}E" else base
                     },
                     draggingIds = draggingIds,
@@ -645,7 +645,7 @@ class PointerOverlayController(private val app: Context) {
 
     private fun queueSettings() {
         val state = PresetSession.state.value
-        if (!state.ready || state.isHold) return
+        if (!state.ready) return
         pendingSettings = state.activeId to PresetSettings(tapIntervalMs, dragDurationMs, randomTouchRadiusDp, repeatEnabled, touchAnimEnabled)
         settingsPersistJob?.cancel()
         settingsPersistJob = scope.launch {
@@ -674,15 +674,26 @@ class PointerOverlayController(private val app: Context) {
         }
     }
 
-    private fun performAddPointer() = addPointer(drag = false)
-    private fun performAddDragPointer() = addPointer(drag = true)
+    private fun performAddPointer() = addPointer(ACTION_TYPE_TAP)
+    private fun performAddDragPointer() = addPointer(ACTION_TYPE_DRAG)
 
-    private fun addPointer(drag: Boolean) {
+    private fun addPointer(actionType: String) {
         val view = root ?: return
         val sourceId = PresetSession.state.value.activeId
         launchCommand {
-            if (PresetSession.state.value.isHold) return@launchCommand
             flushPendingLocked()
+            val drag = actionType == ACTION_TYPE_DRAG
+            if (actionType == ACTION_TYPE_HOLD) {
+                if (Build.VERSION.SDK_INT < 26) {
+                    toast(app.getString(R.string.hold_requires_android_8))
+                    return@launchCommand
+                }
+                val limit = minOf(9, android.accessibilityservice.GestureDescription.getMaxStrokeCount() - 1)
+                if (PresetSession.state.value.points.count { it.actionType == ACTION_TYPE_HOLD } >= limit) {
+                    toast(app.getString(R.string.hold_pointer_limit, limit))
+                    return@launchCommand
+                }
+            }
             val cx = view.width / 2f
             val cy = view.height / 2f
             val (sx, sy) = view.localCenterToScreen(cx, cy)
@@ -692,7 +703,7 @@ class PointerOverlayController(private val app: Context) {
             PresetSession.editPoints(app, sourceId) { points ->
                 if (points.size >= 2000) points else points + HighlightingPoint(
                     x = sx, y = sy, index = (points.maxOfOrNull { it.index } ?: -1) + 1,
-                    delayMs = tapIntervalMs, actionType = if (drag) ACTION_TYPE_DRAG else ACTION_TYPE_TAP,
+                    delayMs = tapIntervalMs, actionType = actionType,
                     dragToX = if (drag) ex else sx, dragToY = if (drag) ey else sy,
                     dragDurationMs = dragDurationMs
                 )

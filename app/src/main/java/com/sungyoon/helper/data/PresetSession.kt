@@ -22,9 +22,7 @@ object PresetSession {
         val points: List<HighlightingPoint> = emptyList(),
         val settings: PresetSettings = PresetSettings(),
         val failed: Boolean = false
-    ) {
-        val isHold: Boolean get() = activeId == PresetEntry.HOLD_PRESET_ID
-    }
+    )
 
     private val mutex = Mutex()
     private val mutableState = MutableStateFlow(State())
@@ -53,19 +51,16 @@ object PresetSession {
         val working = PointsStore.pointsFlow(context).first()
         val settings = readSettings(context)
         val saved = PresetStore.update(context) { old ->
-            val entries = if (old.entries.any { it.isHold }) old.entries else old.entries + PresetEntry(
-                id = PresetEntry.HOLD_PRESET_ID, name = context.getString(R.string.hold_preset_name),
-                createdAtEpochMs = 0L, points = emptyList(), autoNameOrdinal = -1
-            )
-            require(old.activeId == null || entries.any { it.id == old.activeId }) { "Missing active preset" }
-            old.copy(entries = entries.map {
-                if (it.id == old.activeId && !it.isHold && it.settings == null) it.copy(settings = settings) else it
+            val cleaned = PresetStore.withoutLegacyHold(old)
+            require(cleaned.activeId == null || cleaned.entries.any { it.id == cleaned.activeId }) { "Missing active preset" }
+            cleaned.copy(entries = cleaned.entries.map {
+                if (it.id == cleaned.activeId && it.settings == null) it.copy(settings = settings) else it
             })
         }
         publish(context, saved, working, settings)
     }
 
-    suspend fun activate(context: Context, id: String, centerX: Float, centerY: Float) = serialized {
+    suspend fun activate(context: Context, id: String) = serialized {
         check(state.value.ready)
         if (state.value.activeId == id) return@serialized
         val previous = state.value
@@ -78,17 +73,10 @@ object PresetSession {
                 entries = entries + newPreset(previous, context.getString(R.string.preset_previous_touches), ordinal++)
             }
             val target = entries.first { it.id == id }
-            val applied = when {
-                target.isHold && target.points.isEmpty() -> target.copy(points = listOf(
-                    PresetPoint(index = 0, x = centerX, y = centerY)
-                ))
-                !target.isHold && target.settings == null -> target.copy(settings = previous.settings)
-                else -> target
-            }
+            val applied = if (target.settings == null) target.copy(settings = previous.settings) else target
             old.copy(entries = entries.map { if (it.id == id) applied else it }, activeId = id, nextOrdinal = ordinal)
         }
-        publish(context, saved, previous.points.takeUnless { previous.isHold }
-            ?: PointsStore.pointsFlow(context).first(), previous.settings)
+        publish(context, saved, previous.points, previous.settings)
     }
 
     suspend fun addCurrent(context: Context) = serialized {
@@ -97,11 +85,10 @@ object PresetSession {
         mutableState.value = current.copy(ready = false)
         beforeSwitch?.invoke()
         val saved = PresetStore.update(context) { old ->
-            val source = if (current.isHold) current.copy(points = emptyList()) else current
-            val entry = newPreset(source, PresetStore.autoNameForOrdinal(old.nextOrdinal), old.nextOrdinal)
+            val entry = newPreset(current, PresetStore.autoNameForOrdinal(old.nextOrdinal), old.nextOrdinal)
             old.copy(entries = old.entries + entry, activeId = entry.id, nextOrdinal = old.nextOrdinal + 1)
         }
-        publish(context, saved, if (current.isHold) PointsStore.pointsFlow(context).first() else current.points, current.settings)
+        publish(context, saved, current.points, current.settings)
     }
 
     suspend fun rename(context: Context, id: String, name: String) = serialized {
@@ -115,7 +102,6 @@ object PresetSession {
 
     suspend fun delete(context: Context, id: String) = serialized {
         check(state.value.ready)
-        if (id == PresetEntry.HOLD_PRESET_ID) return@serialized
         PresetStore.deletePreset(context, id)
         val saved = PresetStore.read(context)
         mutableState.value = state.value.copy(entries = PresetStore.sortEntries(saved.entries), activeId = saved.activeId)
@@ -128,12 +114,11 @@ object PresetSession {
         if (sourceId != current.activeId) return@serialized
         val points = edit(current.points)
         if (points == current.points) return@serialized
-        require(!current.isHold || points.size == 1)
         if (sourceId != null) {
             val saved = PresetStore.update(context) { old -> old.copy(entries = old.entries.map {
-                if (it.id == sourceId) it.copy(points = toPresetPoints(points), settings = if (it.isHold) it.settings else current.settings) else it
+                if (it.id == sourceId) it.copy(points = toPresetPoints(points), settings = current.settings) else it
             }) }
-            if (!current.isHold) PointsStore.replaceAll(context, points)
+            PointsStore.replaceAll(context, points)
             mutableState.value = current.copy(entries = PresetStore.sortEntries(saved.entries), points = points)
         } else {
             PointsStore.replaceAll(context, points)
@@ -144,7 +129,7 @@ object PresetSession {
     suspend fun editSettings(context: Context, sourceId: String?, settings: PresetSettings) = serialized {
         val current = state.value
         check(current.ready)
-        if (sourceId != current.activeId || current.isHold) return@serialized
+        if (sourceId != current.activeId) return@serialized
         if (sourceId != null) {
             val saved = PresetStore.update(context) { old -> old.copy(entries = old.entries.map {
                 if (it.id == sourceId) it.copy(settings = settings) else it
@@ -163,7 +148,7 @@ object PresetSession {
         val active = saved.entries.firstOrNull { it.id == saved.activeId }
         val settings = active?.settings ?: fallback
         val points = if (active == null) working else materialize(active, working, settings)
-        if (active != null && !active.isHold) {
+        if (active != null) {
             if (working != points) PointsStore.replaceAll(context, points)
             writeSettings(context, settings)
         }
@@ -181,7 +166,7 @@ object PresetSession {
             val previous = if (match >= 0) unused.removeAt(match) else null
             val base = previous ?: HighlightingPoint(x = point.x, y = point.y, index = point.index,
                 delayMs = settings.tapIntervalMs, dragDurationMs = settings.dragDurationMs)
-            base.copy(id = if (entry.isHold) PresetEntry.HOLD_PRESET_ID else base.id,
+            base.copy(
                 x = point.x, y = point.y, index = point.index, actionType = point.actionType,
                 dragToX = point.dragToX, dragToY = point.dragToY)
         }

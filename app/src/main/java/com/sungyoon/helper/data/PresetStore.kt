@@ -13,6 +13,8 @@ import kotlinx.serialization.json.Json
 private val Context.presetDataStore by preferencesDataStore(name = "sungyoon_helper_presets")
 
 object PresetStore {
+    internal const val LEGACY_HOLD_PRESET_ID = "builtin_touch_hold"
+
     private val KEY_PRESETS = stringPreferencesKey("presets_json")
     private val KEY_NEXT_AUTO_NAME_ORDINAL = intPreferencesKey("next_auto_name_ordinal")
     private val KEY_ACTIVE_ID = stringPreferencesKey("active_preset_id")
@@ -33,7 +35,6 @@ object PresetStore {
         require(entries.all { entry -> entry.points.all { p ->
             p.x.isFinite() && p.y.isFinite() && p.dragToX.isFinite() && p.dragToY.isFinite()
         } }) { "Invalid preset coordinates" }
-        require(entries.filter { it.isHold }.all { it.points.size <= 1 }) { "Invalid hold preset" }
         return entries
     }
 
@@ -49,9 +50,6 @@ object PresetStore {
         context.presetDataStore.edit { prefs ->
             val old = Snapshot(decodeEntries(prefs[KEY_PRESETS]), prefs[KEY_ACTIVE_ID], prefs[KEY_NEXT_AUTO_NAME_ORDINAL] ?: 0)
             val next = transform(old)
-            require(old.entries.none { it.isHold } || next.entries.count { it.isHold } == 1) {
-                "The hold preset cannot be deleted"
-            }
             val encoded = encodeEntries(next.entries)
             decodeEntries(encoded)
             require(next.activeId == null || next.entries.any { it.id == next.activeId })
@@ -64,7 +62,6 @@ object PresetStore {
     }
 
     suspend fun deletePreset(context: Context, presetId: String): Boolean {
-        if (presetId == PresetEntry.HOLD_PRESET_ID) return false
         var deleted = false
         update(context) { old ->
             deleted = old.entries.any { it.id == presetId }
@@ -74,9 +71,14 @@ object PresetStore {
         return deleted
     }
 
+    /** Removes only the retired built-in entry, including when it was renamed. */
+    internal fun withoutLegacyHold(snapshot: Snapshot) = snapshot.copy(
+        entries = snapshot.entries.filterNot { it.id == LEGACY_HOLD_PRESET_ID },
+        activeId = snapshot.activeId.takeUnless { it == LEGACY_HOLD_PRESET_ID }
+    )
+
     internal fun sortEntries(entries: List<PresetEntry>): List<PresetEntry> = entries.sortedWith(
-        compareByDescending<PresetEntry> { it.isHold }
-            .thenByDescending { it.createdAtEpochMs }.thenByDescending { it.autoNameOrdinal }
+        compareByDescending<PresetEntry> { it.createdAtEpochMs }.thenByDescending { it.autoNameOrdinal }
     )
 
     internal fun autoNameForOrdinal(ordinal: Int): String {

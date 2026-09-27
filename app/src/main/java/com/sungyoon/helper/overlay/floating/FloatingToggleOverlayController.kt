@@ -27,7 +27,8 @@ class FloatingToggleOverlayController(
     private val isOn: () -> Boolean,
     private val onHoldToggle: (Boolean) -> Unit = {},
     private val onHidden: () -> Unit = {},
-    private val onConfigurationChanged: () -> Unit = {}
+    private val onConfigurationChanged: () -> Unit = {},
+    private val onPhysicalTouch: () -> Unit = {}
 ) {
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
@@ -81,6 +82,7 @@ class FloatingToggleOverlayController(
         sizePx,
         overlayType,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT
@@ -123,13 +125,32 @@ class FloatingToggleOverlayController(
     fun show() {
         if (added) return
 
-        val group = LinearLayout(context).apply {
+        val group = object : LinearLayout(context) {
+            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) pendingHoldTarget = null
+                // Android 16 QPR2 can cancel injected contacts without a result callback.
+                // Observe real DOWNs without intercepting touches outside this small window.
+                if ((event.actionMasked == MotionEvent.ACTION_OUTSIDE ||
+                            event.actionMasked == MotionEvent.ACTION_DOWN) &&
+                    event.device?.isVirtual == false) {
+                    // Preserve the user's intended toggle before cancellation changes its state.
+                    if (holdRunning && event.actionMasked == MotionEvent.ACTION_DOWN &&
+                        event.x >= 0f && event.x < width && event.y >= 0f && event.y < holdButtonHeightPx)
+                        pendingHoldTarget = false
+                    onPhysicalTouch()
+                }
+                return super.dispatchTouchEvent(event)
+            }
+        }.apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER_HORIZONTAL
         }
         val button = TextView(context).apply {
             gravity = Gravity.CENTER
-            textSize = 13f
+            textSize = 12f
+            setSingleLine(true)
+            androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                this, 9, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
             setTextColor(Color.WHITE)
             isClickable = true
             isFocusable = true
@@ -148,7 +169,7 @@ class FloatingToggleOverlayController(
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     // A physical touch can cancel the injected gesture before ACTION_UP.
-                    pendingHoldTarget = !holdRunning
+                    if (pendingHoldTarget == null) pendingHoldTarget = !holdRunning
                     toggleDownX = event.rawX
                     toggleDownY = event.rawY
                     toggleMoved = false

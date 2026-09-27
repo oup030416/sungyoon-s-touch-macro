@@ -21,10 +21,9 @@ import com.sungyoon.helper.data.ReservationRuntimeStore
 import com.sungyoon.helper.data.SequencePrefsStore
 import com.sungyoon.helper.data.TapIntervalStore
 import com.sungyoon.helper.model.HighlightingPoint
+import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_HOLD
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.overlay.floating.FloatingToggleOverlayController
-import com.sungyoon.helper.service.dispatchDrag
-import com.sungyoon.helper.service.dispatchTap
 import com.sungyoon.helper.service.highlight.SequenceOverlayController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -84,40 +83,69 @@ class SungyoonHelperService : AccessibilityService() {
     private var presetStateJob: Job? = null
     private var executionCommand: Job? = null
     private var executionGeneration = 0L
+    private var holdCommand: Job? = null
+    private var holdGeneration = 0L
 
     private fun requestHoldOff() {
-        executionGeneration++
-        executionCommand?.cancel()
-        executionCommand = null
+        holdGeneration++
+        holdCommand?.cancel()
+        holdCommand = null
         holdRunner?.stop()
         updateHoldControl()
     }
 
+    private fun stopPendingHoldStarts() {
+        executionGeneration++
+        executionCommand?.cancel()
+        requestHoldOff()
+    }
+
+    private fun onPhysicalTouch() {
+        holdGeneration++
+        holdCommand?.cancel()
+        holdCommand = null
+        holdRunner?.cancelFromPhysicalInput()
+    }
+
     private fun updateHoldControl() {
         val state = PresetSession.state.value
-        floatingToggle?.setHoldState(state.isHold, holdRunner?.isRunning == true,
+        floatingToggle?.setHoldState(state.points.any { it.actionType == ACTION_TYPE_HOLD }, holdRunner?.isRunning == true,
             state.ready && holdRunner?.isSupported == true)
     }
 
     private fun setHoldEnabled(enabled: Boolean) {
         if (!enabled) { requestHoldOff(); return }
-        if (!PresetSession.state.value.ready || !PresetSession.state.value.isHold) return
+        if (!PresetSession.state.value.ready) return
+        requestHoldOff()
+        val generation = holdGeneration
+        holdCommand = serviceScope.launch {
+            TouchPointerOverlay.flushAndHide()
+            holdRunner?.stopAndAwait()
+            if (generation != holdGeneration) return@launch
+            startRegisteredHolds()
+        }
+    }
+
+    private suspend fun startRegisteredHolds(expectedHoldGeneration: Long = holdGeneration): Boolean {
+        // An explicit Off or physical cancellation overrides an older Play request.
+        if (expectedHoldGeneration != holdGeneration) return true
+        val state = PresetSession.state.value
+        if (!state.ready) return false
+        val holds = state.points.filter { it.actionType == ACTION_TYPE_HOLD }
+        if (holds.isEmpty()) return true
         if (holdRunner?.isSupported != true) {
             com.sungyoon.helper.util.OverlayToast.show(this, getString(R.string.hold_requires_android_8))
-            return
+            return false
         }
-        requestHoldOff()
-        val generation = executionGeneration
-        executionCommand = serviceScope.launch {
-            TouchPointerOverlay.flushAndHide()
-            stopNormalExecutions()
-            holdRunner?.stopAndAwait()
-            if (generation != executionGeneration) return@launch
-            val state = PresetSession.state.value
-            if (!state.ready || !state.isHold) return@launch
-            val point = state.points.singleOrNull() ?: return@launch
-            holdRunner?.start(point.x, point.y)
+        val limit = minOf(9, android.accessibilityservice.GestureDescription.getMaxStrokeCount() - 1)
+        if (holds.size > limit) {
+            com.sungyoon.helper.util.OverlayToast.show(this, getString(R.string.hold_pointer_limit, limit))
+            return false
         }
+        if (holdRunner?.isRunning == true) return holdRunner?.awaitHoldsStarted() == true
+        holdRunner?.stopAndAwait()
+        if (expectedHoldGeneration != holdGeneration) return true
+        return holdRunner?.startHolds(holds) == true
     }
 
     private suspend fun stopNormalExecutions() {
@@ -138,27 +166,29 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
     private suspend fun stopForPresetSwitch() {
+        executionGeneration++
+        executionCommand?.cancel()
         requestHoldOff()
-        holdRunner?.stopAndAwait()
         stopNormalExecutions()
+        holdRunner?.stopAllAndAwait()
     }
 
-    private fun normalCommand(action: suspend () -> Unit) {
-        requestHoldOff()
-        val generation = executionGeneration
+    private fun normalCommand(action: suspend (Long) -> Unit) {
+        executionCommand?.cancel()
+        val generation = ++executionGeneration
+        val expectedHoldGeneration = holdGeneration
         executionCommand = serviceScope.launch {
-            TouchPointerOverlay.flushEdits()
+            TouchPointerOverlay.flushAndHide()
             PresetSession.initialize(this@SungyoonHelperService)
-            holdRunner?.stopAndAwait()
             val state = PresetSession.state.value
-            if (generation != executionGeneration || !state.ready || state.isHold) return@launch
+            if (generation != executionGeneration || !state.ready) return@launch
             cachedPointsSorted = state.points.sortedBy { it.index }
             cachedTapIntervalMs = state.settings.tapIntervalMs
             cachedDragDurationMs = state.settings.dragDurationMs
             cachedRandomTouchRadiusDp = state.settings.randomRadiusDp
             cachedRepeatEnabled = state.settings.repeatEnabled
             touchAnimationEnabled = state.settings.touchAnimationEnabled
-            action()
+            action(expectedHoldGeneration)
         }
     }
 
@@ -198,7 +228,8 @@ class SungyoonHelperService : AccessibilityService() {
         }
 
         connectedService = this
-        holdRunner?.stop()
+        stopPendingHoldStarts()
+        holdRunner?.onServiceDisconnected()
         holdRunner = HoldGestureRunner(this, onStateChanged = { updateHoldControl() }, onFailure = {
             com.sungyoon.helper.util.OverlayToast.show(this, getString(R.string.hold_gesture_failed))
         })
@@ -221,14 +252,26 @@ class SungyoonHelperService : AccessibilityService() {
             override fun onReceive(context: Context?, intent: Intent?) {
                 Log.d(TAG, "commandReceiver onReceive:action=${intent?.action}")
                 when (intent?.action) {
-                    Intent.ACTION_SCREEN_OFF -> requestHoldOff()
-                    ACTION_START_SEQUENCE -> normalCommand { stopNormalExecutions(); startSequence() }
-                    ACTION_STOP_SEQUENCE -> { requestHoldOff(); stopSequence() }
+                    Intent.ACTION_SCREEN_OFF -> stopPendingHoldStarts()
+                    ACTION_START_SEQUENCE -> normalCommand { expectedHoldGeneration ->
+                        stopNormalExecutions()
+                        if (startRegisteredHolds(expectedHoldGeneration)) startSequence()
+                    }
+                    ACTION_STOP_SEQUENCE -> { executionGeneration++; executionCommand?.cancel(); stopSequence() }
                     ACTION_ENSURE_FLOATING_TOGGLE -> ensureFloatingToggleShown()
-                    ACTION_START_RESERVATION -> normalCommand { startReservationFromPrefsOrExtras(intent) }
-                    ACTION_STOP_RESERVATION -> stopReservation(fromUser = true)
-                    ACTION_PAUSE_RESERVATION -> pauseReservation()
-                    ACTION_RESET_RESERVATION -> resetReservation(forceFromUser = true)
+                    ACTION_START_RESERVATION -> normalCommand { startReservationFromPrefsOrExtras(intent, it) }
+                    ACTION_STOP_RESERVATION -> {
+                        executionGeneration++; executionCommand?.cancel()
+                        stopReservation(fromUser = true)
+                    }
+                    ACTION_PAUSE_RESERVATION -> {
+                        executionGeneration++; executionCommand?.cancel()
+                        pauseReservation()
+                    }
+                    ACTION_RESET_RESERVATION -> {
+                        executionGeneration++; executionCommand?.cancel()
+                        resetReservation(forceFromUser = true)
+                    }
                     ACTION_RESUME_RESERVATION -> {
                         val manual = intent.getBooleanExtra(EXTRA_MANUAL_RESUME, false)
 
@@ -366,8 +409,9 @@ class SungyoonHelperService : AccessibilityService() {
                 },
                 isOn = { TouchPointerOverlay.isShowing() },
                 onHoldToggle = ::setHoldEnabled,
-                onHidden = ::requestHoldOff,
-                onConfigurationChanged = ::requestHoldOff
+                onHidden = ::stopPendingHoldStarts,
+                onConfigurationChanged = ::stopPendingHoldStarts,
+                onPhysicalTouch = ::onPhysicalTouch
             ).also { it.show() }
         } else {
             if (!ft.isShowing()) ft.show()
@@ -379,6 +423,8 @@ class SungyoonHelperService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
 
     override fun onInterrupt() {
+        executionGeneration++
+        executionCommand?.cancel()
         requestHoldOff()
         stopSequence()
         // 안전상 예약도 중단
@@ -424,8 +470,8 @@ class SungyoonHelperService : AccessibilityService() {
     // ----------------------------
 
     private fun startSequence() {
-        if (!PresetSession.state.value.ready || PresetSession.state.value.isHold) return
-        if (runnerJob?.isActive == true) return
+        if (!PresetSession.state.value.ready) return
+        if (runnerJob?.isActive == true || cachedPointsSorted.none { it.actionType != ACTION_TYPE_HOLD }) return
 
         runnerJob = serviceScope.launch {
             SequencePrefsStore.setSequenceRunning(this@SungyoonHelperService, true)
@@ -440,7 +486,7 @@ class SungyoonHelperService : AccessibilityService() {
 
             try {
                 while (isActive) {
-                    val points = cachedPointsSorted
+                    val points = cachedPointsSorted.filterNot { it.actionType == ACTION_TYPE_HOLD }
 
                     if (points.isEmpty()) break
 
@@ -503,7 +549,7 @@ class SungyoonHelperService : AccessibilityService() {
                             label = label
                         )
                     }
-                    dispatchDrag(
+                    holdRunner?.drag(
                         fromX = point.x,
                         fromY = point.y,
                         toX = point.dragToX,
@@ -514,7 +560,7 @@ class SungyoonHelperService : AccessibilityService() {
                 }
                 overlay?.moveTo(point.dragToX, point.dragToY, label = label)
             } else {
-                dispatchDrag(
+                holdRunner?.drag(
                     fromX = point.x,
                     fromY = point.y,
                     toX = point.dragToX,
@@ -529,7 +575,7 @@ class SungyoonHelperService : AccessibilityService() {
                 overlay?.moveTo(tapX, tapY, label = label)
                 overlay?.triggerPop()
             }
-            dispatchTap(tapX, tapY)
+            holdRunner?.tap(tapX, tapY)
         }
     }
 
@@ -607,7 +653,7 @@ class SungyoonHelperService : AccessibilityService() {
     // ✅ 예약 시퀀스
     // ----------------------------
 
-    private suspend fun startReservationFromPrefsOrExtras(intent: Intent?) {
+    private suspend fun startReservationFromPrefsOrExtras(intent: Intent?, expectedHoldGeneration: Long) {
         stopSequence()
 
         val alreadyActive = cachedReservationActive
@@ -632,6 +678,8 @@ class SungyoonHelperService : AccessibilityService() {
         if (reservationJob?.isActive == true) {
             stopReservation(fromUser = false)
         }
+
+        if (!startRegisteredHolds(expectedHoldGeneration)) return
 
         // ✅ 초 우선, 없으면 (구버전) 분을 받아 초로 변환, 그것도 없으면 Prefs(초)
         val runSec =
@@ -690,7 +738,7 @@ class SungyoonHelperService : AccessibilityService() {
 
 
     private fun startReservationJobFromRuntime() {
-        if (!PresetSession.state.value.ready || PresetSession.state.value.isHold) return
+        if (!PresetSession.state.value.ready) return
         if (reservationJob?.isActive == true) return
         if (!reservationJobGate.compareAndSet(false, true)) return
 
@@ -767,8 +815,12 @@ class SungyoonHelperService : AccessibilityService() {
                 sendReservationStatusChanged(text)
             }
 
-            val points = cachedPointsSorted
+            val points = cachedPointsSorted.filterNot { it.actionType == ACTION_TYPE_HOLD }
             if (points.isEmpty()) {
+                if (cachedPointsSorted.any { it.actionType == ACTION_TYPE_HOLD }) {
+                    waitUntilRunPhaseEnd(endAtMs)
+                    return
+                }
                 stopReservation(fromUser = false, finalStatus = "포인트가 없어 예약을 종료합니다.")
                 return
             }

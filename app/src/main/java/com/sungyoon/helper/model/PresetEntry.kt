@@ -11,13 +11,7 @@ data class PresetEntry(
     val points: List<PresetPoint>,
     val autoNameOrdinal: Int,
     val settings: PresetSettings? = null
-) {
-    val isHold: Boolean get() = id == HOLD_PRESET_ID
-
-    companion object {
-        const val HOLD_PRESET_ID = "builtin_touch_hold"
-    }
-}
+)
 
 @Serializable
 data class PresetSettings(

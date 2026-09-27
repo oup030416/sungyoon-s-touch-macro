@@ -18,6 +18,15 @@ import android.view.View
 import android.view.WindowManager
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sungyoon.helper.data.PresetSession
+import com.sungyoon.helper.data.PresetStore
+import com.sungyoon.helper.data.PointsStore
+import com.sungyoon.helper.data.SequencePrefsStore
+import com.sungyoon.helper.data.ReservationRuntimeStore
+import com.sungyoon.helper.model.HighlightingPoint
+import com.sungyoon.helper.model.PresetSettings
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import com.sungyoon.helper.model.PresetEntry
 import com.sungyoon.helper.overlay.floating.FloatingToggleOverlayController
 import com.sungyoon.helper.overlay.pointer.PointerOverlayRootView
@@ -25,6 +34,7 @@ import com.sungyoon.helper.service.HoldGestureRunner
 import com.sungyoon.helper.service.HoldGestureBackend
 import com.sungyoon.helper.service.HoldStroke
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
@@ -45,6 +55,8 @@ class HoldIntegrationTest {
     private lateinit var target: RecordingView
     private lateinit var service: SungyoonHelperService
     private var isolatedDevice = false
+    private val fixtureId = "mixed-hold-integration"
+    private val holdId = "integration-h1"
     private var centerX = 0f
     private var centerY = 0f
 
@@ -88,6 +100,12 @@ class HoldIntegrationTest {
             centerX = location[0] + target.width / 2f
             centerY = location[1] + target.height / 2f
         }
+        sendCommand(SungyoonHelperService.ACTION_STOP_SEQUENCE)
+        sendCommand(SungyoonHelperService.ACTION_STOP_RESERVATION)
+        instrumentation.waitForIdleSync()
+        await("The previous reservation did not stop") {
+            runBlocking { !ReservationRuntimeStore.snapshotFlow(activity).first().active }
+        }
         runBlocking {
             withTimeout(10_000) {
                 withContext(Dispatchers.Main.immediate) {
@@ -95,9 +113,15 @@ class HoldIntegrationTest {
                     SungyoonHelperService.awaitHoldStopped()
                     TouchPointerOverlay.flushAndHide()
                     PresetSession.initialize(activity)
-                    PresetSession.activate(activity, PresetEntry.HOLD_PRESET_ID, centerX, centerY)
-                    PresetSession.editPoints(activity, PresetEntry.HOLD_PRESET_ID) { points ->
-                        points.map { it.copy(x = centerX, y = centerY, dragToX = centerX, dragToY = centerY) }
+                    val fixture = PresetEntry(id = fixtureId, name = "혼합 홀드 검증", createdAtEpochMs = 0,
+                        points = emptyList(), autoNameOrdinal = -1, settings = PresetSettings(randomRadiusDp = 0,
+                            repeatEnabled = false, touchAnimationEnabled = false))
+                    PresetStore.update(activity) { it.copy(entries = it.entries.filterNot { p -> p.id == fixtureId } + fixture) }
+                    PresetSession.activate(activity, fixtureId)
+                    PresetSession.editSettings(activity, fixtureId, PresetSettings(randomRadiusDp = 0,
+                        repeatEnabled = false, touchAnimationEnabled = false))
+                    PresetSession.editPoints(activity, fixtureId) {
+                        listOf(HighlightingPoint(holdId, centerX, centerY, 0, 1000, "hold"))
                     }
                 }
             }
@@ -111,10 +135,15 @@ class HoldIntegrationTest {
         if (!isolatedDevice) return
         try {
             if (::service.isInitialized) {
+                sendCommand(SungyoonHelperService.ACTION_STOP_SEQUENCE)
+                sendCommand(SungyoonHelperService.ACTION_STOP_RESERVATION)
                 instrumentation.runOnMainSync { setHold(false) }
                 runBlocking {
                     withTimeout(5_000) {
-                        withContext(Dispatchers.Main.immediate) { SungyoonHelperService.awaitHoldStopped() }
+                        withContext(Dispatchers.Main.immediate) {
+                            (serviceField("holdRunner") as HoldGestureRunner).stopAllAndAwait()
+                            TouchPointerOverlay.flushAndHide()
+                        }
                     }
                 }
             }
@@ -207,7 +236,7 @@ class HoldIntegrationTest {
         centerY = centerY.roundToInt() + 0.15625f
         runBlocking {
             withContext(Dispatchers.Main.immediate) {
-                PresetSession.editPoints(activity, PresetEntry.HOLD_PRESET_ID) { points ->
+                PresetSession.editPoints(activity, fixtureId) { points ->
                     points.map { it.copy(x = centerX, y = centerY, dragToX = centerX, dragToY = centerY) }
                 }
             }
@@ -216,7 +245,7 @@ class HoldIntegrationTest {
             if (managerOpen) {
                 instrumentation.runOnMainSync { TouchPointerOverlay.show(activity) }
                 await("The hold manager did not finish opening") {
-                    overlayRoot()?.getSelectedPresetId() == PresetEntry.HOLD_PRESET_ID
+                    overlayRoot()?.getSelectedPresetId() == fixtureId
                 }
                 instrumentation.waitForIdleSync()
                 dragHoldPointerBeforeFirstOn()
@@ -256,7 +285,7 @@ class HoldIntegrationTest {
         await("The panel still covers the hold pointer") { panel.visibility == View.GONE }
         @Suppress("UNCHECKED_CAST")
         val pointer = (root.javaClass.getDeclaredField("views").apply { isAccessible = true }
-            .get(root) as Map<String, View>).getValue(PresetEntry.HOLD_PRESET_ID)
+            .get(root) as Map<String, View>).getValue(holdId)
         val start = IntArray(2)
         instrumentation.runOnMainSync {
             pointer.getLocationOnScreen(start)
@@ -389,7 +418,7 @@ class HoldIntegrationTest {
         try {
             instrumentation.runOnMainSync { TouchPointerOverlay.show(activity) }
             await("The hold management overlay did not finish opening") {
-                overlayRoot()?.getSelectedPresetId() == PresetEntry.HOLD_PRESET_ID
+                overlayRoot()?.getSelectedPresetId() == fixtureId
             }
             instrumentation.waitForIdleSync()
             startAndAwaitDown()
@@ -418,6 +447,285 @@ class HoldIntegrationTest {
         } finally {
             instrumentation.runOnMainSync { floating.show() }
         }
+    }
+
+    @Test fun testTwoHoldsContinueAcrossTapsAndSegmentedDrag() {
+        configureMixed(repeat = false)
+        sendCommand(SungyoonHelperService.ACTION_START_SEQUENCE)
+        await("The ordinary drag did not finish") {
+            target.events.count { it.action == MotionEvent.ACTION_POINTER_UP } >= 2
+        }
+        await("The ordinary sequence did not finish") {
+            runBlocking { !SequencePrefsStore.sequenceRunningFlow(activity).first() }
+        }
+        assertTrue("Completion must leave holds On", isHolding())
+        val holdIds = target.events.first { it.pointerIds.size == 2 }.pointerIds.toSet()
+        assertEquals(2, holdIds.size)
+        assertTrue(target.events.filter { it.action == MotionEvent.ACTION_POINTER_UP }.all { it.actionId !in holdIds })
+        assertFalse(target.events.any { it.action == MotionEvent.ACTION_UP || it.action == MotionEvent.ACTION_CANCEL })
+        assertEquals(1, target.downCount())
+        target.events.filter { it.pointerIds.size >= 2 }.forEach {
+            assertTrue("A continued hold contact disappeared", it.pointerIds.containsAll(holdIds))
+        }
+        assertTrue("The ordinary drag did not move while holding", target.events.any {
+            it.action == MotionEvent.ACTION_MOVE && it.coordinates.any { (id, xy) -> id !in holdIds && xy.first > centerX + 60f }
+        })
+        instrumentation.runOnMainSync { setHold(false) }
+        awaitReleased()
+        assertEquals(1, target.events.count { it.action == MotionEvent.ACTION_UP })
+        assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL })
+    }
+
+    @Test fun testHoldOffKeepsOrdinarySequenceRunning() {
+        configureMixed(repeat = true)
+        sendCommand(SungyoonHelperService.ACTION_START_SEQUENCE)
+        await("Mixed playback did not start") { target.events.any { it.pointerIds.size == 3 } }
+        instrumentation.runOnMainSync { setHold(false) }
+        await("Hold Off did not release the holds") { !isHolding() }
+        val end = target.events.size
+        await("Ordinary playback did not continue after Hold Off") {
+            target.events.drop(end).any { it.action == MotionEvent.ACTION_DOWN && it.pointerIds.size == 1 }
+        }
+        assertTrue(runBlocking { SequencePrefsStore.sequenceRunningFlow(activity).first() })
+        sendCommand(SungyoonHelperService.ACTION_STOP_SEQUENCE)
+    }
+
+    @Test fun testOffDuringPendingPlaybackHandoffDoesNotReactivateHolds() {
+        configureMixed(repeat = false)
+        instrumentation.runOnMainSync { TouchPointerOverlay.show(activity) }
+        await("The manager did not load") { overlayRoot()?.getSelectedPresetId() == fixtureId }
+        sendCommand(SungyoonHelperService.ACTION_START_SEQUENCE)
+        await("Playback did not enter input handoff") {
+            (serviceField("executionCommand") as? kotlinx.coroutines.Job)?.isActive == true
+        }
+        instrumentation.runOnMainSync { setHold(false) }
+        await("Ordinary playback did not proceed") { target.endCount() >= 2 }
+        assertFalse(isHolding())
+        assertTrue("An obsolete Play request reactivated holds", target.events.all { it.pointerIds.size == 1 })
+    }
+
+    @Test fun testReservationStopCancelsItsPendingInputHandoff() {
+        configureMixed(repeat = false)
+        instrumentation.runOnMainSync { TouchPointerOverlay.show(activity) }
+        await("The manager did not load") { overlayRoot()?.getSelectedPresetId() == fixtureId }
+        sendCommand(SungyoonHelperService.ACTION_START_RESERVATION)
+        await("Reservation did not enter input handoff") {
+            (serviceField("executionCommand") as? kotlinx.coroutines.Job)?.isActive == true
+        }
+        sendCommand(SungyoonHelperService.ACTION_STOP_RESERVATION)
+        await("The pending reservation command did not stop") {
+            (serviceField("executionCommand") as? kotlinx.coroutines.Job)?.isActive != true
+        }
+        SystemClock.sleep(400)
+        assertFalse(isHolding())
+        assertFalse(runBlocking { ReservationRuntimeStore.snapshotFlow(activity).first().active })
+        assertEquals(0, target.downCount())
+    }
+
+    @Test fun testReleasingHoldsBeforeAQueuedTapDoesNotShareTheDownTimestamp() {
+        configureMixed(repeat = false)
+        startAndAwaitDown()
+        await("Both holds did not reach the target") { target.events.any { it.pointerIds.size == 2 } }
+        runBlocking { withContext(Dispatchers.Main.immediate) {
+            val runner = serviceField("holdRunner") as HoldGestureRunner
+            val tap = async(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                runner.tap(centerX, centerY + 180f)
+            }
+            runner.stop()
+            assertTrue(withTimeout(5_000) { tap.await() })
+        } }
+        await("The queued tap did not lift") { target.endCount() == 2 }
+        assertEquals(2, target.downCount())
+        assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL })
+        assertFalse(isHolding())
+    }
+
+    @Test fun testPhysicalCancellationDropsOnlyHoldsAndDoesNotReactivateThem() {
+        // A host must inject an emulator-console mouse down/up when this status arrives.
+        // UiAutomation injection is not hardware input and does not reliably cancel gestures.
+        org.junit.Assume.assumeTrue(InstrumentationRegistry.getArguments().getString("hardwareTouch") == "true")
+        configureMixed(repeat = true)
+        sendCommand(SungyoonHelperService.ACTION_START_SEQUENCE)
+        await("Mixed playback did not start") { target.events.any { it.pointerIds.size == 3 } }
+        instrumentation.sendStatus(0, android.os.Bundle().apply {
+            putString("stream", "HARDWARE_TOUCH_READY ${(centerX + 170f).roundToInt()} ${(centerY + 180f).roundToInt()}\n")
+        })
+        await("Physical touch did not switch holds Off", 15_000) { !isHolding() }
+        val end = target.events.size
+        await("Ordinary playback did not advance after physical cancellation") {
+            target.events.drop(end).any { it.action == MotionEvent.ACTION_DOWN &&
+                abs(it.x - centerX) <= 110f &&
+                (abs(it.y - (centerY + 150f)) < 2f || abs(it.y - (centerY + 200f)) < 2f) }
+        }
+        SystemClock.sleep(700)
+        assertFalse(isHolding())
+        assertTrue(target.events.drop(end).all { it.pointerIds.size == 1 })
+        sendCommand(SungyoonHelperService.ACTION_STOP_SEQUENCE)
+    }
+
+    @Test fun testReservationRestAndPauseKeepHoldsUntilOff() {
+        configureMixed(repeat = false)
+        sendCommand(SungyoonHelperService.ACTION_START_RESERVATION) {
+            putExtra(SungyoonHelperService.EXTRA_RUN_SEC, 2)
+            putExtra(SungyoonHelperService.EXTRA_REST_SEC, 2)
+            putExtra(SungyoonHelperService.EXTRA_REPEAT_COUNT, 2)
+        }
+        await("The new reservation did not start") {
+            runBlocking { ReservationRuntimeStore.snapshotFlow(activity).first().let {
+                it.active && it.phase == ReservationRuntimeStore.PHASE_RUN
+            } }
+        }
+        await("Reservation did not enter rest", 12_000) {
+            runBlocking { ReservationRuntimeStore.snapshotFlow(activity).first().phase == ReservationRuntimeStore.PHASE_REST }
+        }
+        assertTrue(isHolding())
+        sendCommand(SungyoonHelperService.ACTION_PAUSE_RESERVATION)
+        await("Reservation did not pause") { runBlocking { ReservationRuntimeStore.snapshotFlow(activity).first().paused } }
+        assertTrue(isHolding())
+        instrumentation.runOnMainSync { setHold(false) }
+        awaitReleased()
+        sendCommand(SungyoonHelperService.ACTION_RESUME_RESERVATION) {
+            putExtra(SungyoonHelperService.EXTRA_MANUAL_RESUME, true)
+        }
+        SystemClock.sleep(3_000)
+        assertFalse("A later reservation cycle reactivated holds", isHolding())
+        sendCommand(SungyoonHelperService.ACTION_STOP_RESERVATION)
+    }
+
+    @Test fun testNineHoldsLeaveRoomForOneOrdinaryContact() {
+        runBlocking { withContext(Dispatchers.Main.immediate) {
+            PresetSession.editPoints(activity, fixtureId) {
+                (0 until 9).map { n -> HighlightingPoint("h$n", centerX + (n % 3 - 1) * 60,
+                    centerY + (n / 3 - 1) * 60, n, 100, "hold") } +
+                    HighlightingPoint("tenth-contact", centerX, centerY + 220, 9, 100)
+            }
+        } }
+        sendCommand(SungyoonHelperService.ACTION_START_SEQUENCE)
+        await("Nine holds plus the tap were not injected") { target.events.any { it.pointerIds.size == 10 } }
+        await("The tenth contact did not lift") { target.events.any { it.action == MotionEvent.ACTION_POINTER_UP } }
+        assertTrue(isHolding())
+        assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL })
+        instrumentation.runOnMainSync { setHold(false) }
+        awaitReleased()
+    }
+
+    @Test fun testManagerAddsHoldsLabelsActionsSeparatelyAndEnforcesLimit() {
+        configureMixed(repeat = false)
+        instrumentation.runOnMainSync { TouchPointerOverlay.show(activity) }
+        await("Mixed manager did not load") { overlayRoot()?.getSelectedPresetId() == fixtureId }
+        var root = overlayRoot()!!
+        var controls = root.javaClass.getDeclaredField("controls").apply { isAccessible = true }
+            .get(root) as com.sungyoon.helper.overlay.pointer.PointerOverlayControlsViews
+        @Suppress("UNCHECKED_CAST")
+        val views = root.javaClass.getDeclaredField("views").apply { isAccessible = true }.get(root) as Map<String, View>
+        fun label(id: String): String = views.getValue(id).javaClass.getDeclaredField("label")
+            .apply { isAccessible = true }.get(views.getValue(id)) as String
+        instrumentation.runOnMainSync {
+            assertEquals("H1", label(holdId))
+            assertEquals("H2", label("integration-h2"))
+            assertEquals("1", label("integration-tap"))
+            assertEquals("2", label("integration-drag"))
+            assertTrue(controls.addBtn.isEnabled && controls.addDragBtn.isEnabled && controls.addHoldBtn.isEnabled)
+            assertTrue(controls.clearAllBtn.isEnabled && controls.playToggleBtn.isEnabled && controls.reserveBtn.isEnabled)
+            repeat(8) { controls.addHoldBtn.performClick() }
+        }
+        await("Hold creation did not reach its limit") { PresetSession.state.value.points.count { it.actionType == "hold" } == 9 }
+        runBlocking { withContext(Dispatchers.Main.immediate) { TouchPointerOverlay.flushEdits() } }
+        assertEquals(11, PresetSession.state.value.points.size)
+        assertEquals(9, readSavedHoldCount(activity, fixtureId))
+        instrumentation.runOnMainSync { root.setControlPanelVisibleFromController(true) }
+        SystemClock.sleep(250)
+        automation.takeScreenshot()?.let { bitmap ->
+            java.io.File(activity.cacheDir, "mixed-hold-manager.png").outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+            bitmap.recycle()
+        }
+        automation.setRotation(UiAutomation.ROTATION_FREEZE_90)
+        await("The activity did not recreate in landscape") { activity.isDestroyed }
+        SystemClock.sleep(300)
+        instrumentation.runOnMainSync { TouchPointerOverlay.show(instrumentation.targetContext) }
+        await("The manager did not load in landscape") {
+            overlayRoot()?.let { it.width > it.height && it.getSelectedPresetId() == fixtureId } == true
+        }
+        root = overlayRoot()!!
+        controls = root.javaClass.getDeclaredField("controls").apply { isAccessible = true }
+            .get(root) as com.sungyoon.helper.overlay.pointer.PointerOverlayControlsViews
+        instrumentation.runOnMainSync {
+            root.setControlPanelVisibleFromController(true)
+            val scroll = root.javaClass.getDeclaredField("controlPanelScrollHost").apply { isAccessible = true }
+                .get(root) as android.widget.ScrollView
+            scroll.fullScroll(View.FOCUS_DOWN)
+        }
+        SystemClock.sleep(300)
+        automation.takeScreenshot()?.let { bitmap ->
+            java.io.File(activity.cacheDir, "mixed-hold-manager-landscape.png").outputStream().use {
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it)
+            }
+            bitmap.recycle()
+        }
+        instrumentation.runOnMainSync {
+            val rect = android.graphics.Rect()
+            assertTrue("The hold addition button is unreachable in landscape", controls.addHoldBtn.getGlobalVisibleRect(rect))
+            assertEquals(controls.addHoldBtn.height, rect.height())
+            assertTrue("Playback is unreachable in landscape", controls.playToggleBtn.getGlobalVisibleRect(rect))
+            assertEquals(controls.playToggleBtn.height, rect.height())
+        }
+        instrumentation.runOnMainSync { controls.clearAllBtn.performClick() }
+        await("Clear all did not remove every pointer type") { PresetSession.state.value.points.isEmpty() }
+        assertTrue(readSavedHoldCount(activity, fixtureId) == 0)
+    }
+
+    private fun readSavedHoldCount(context: Context, id: String) = runBlocking {
+        PresetStore.read(context).entries.single { it.id == id }.points.count { it.actionType == "hold" }
+    }
+
+    @Test fun testAuxiliaryHandleMovesOnlySelectedHoldWithoutAxisSnapping() {
+        configureMixed(repeat = false)
+        instrumentation.runOnMainSync { TouchPointerOverlay.show(activity) }
+        await("Mixed manager did not load") { overlayRoot()?.getSelectedPresetId() == fixtureId }
+        val root = overlayRoot()!!
+        val before = PresetSession.state.value.points
+        instrumentation.runOnMainSync {
+            root.setControlPanelVisibleFromController(false)
+            root.javaClass.getDeclaredMethod("selectPointer", String::class.java, PointerOverlayRootView.Endpoint::class.java)
+                .apply { isAccessible = true }.invoke(root, holdId, PointerOverlayRootView.Endpoint.START)
+        }
+        val handle = root.javaClass.getDeclaredField("moveStickHandle").apply { isAccessible = true }.get(root) as View
+        await("The auxiliary handle is not visible") { handle.isShown }
+        instrumentation.runOnMainSync {
+            val now = SystemClock.uptimeMillis()
+            listOf(Triple(MotionEvent.ACTION_DOWN, 10f, 10f), Triple(MotionEvent.ACTION_MOVE, 75f, 48f),
+                Triple(MotionEvent.ACTION_UP, 75f, 48f)).forEach { (action, x, y) ->
+                val event = MotionEvent.obtain(now, now + 20, action, x, y, 0)
+                try { handle.dispatchTouchEvent(event) } finally { event.recycle() }
+            }
+        }
+        await("The auxiliary hold move was not saved") { PresetSession.state.value.points.first { it.id == holdId }.x != before.first().x }
+        val after = PresetSession.state.value.points
+        assertEquals(before.filterNot { it.id == holdId }, after.filterNot { it.id == holdId })
+        val moved = after.single { it.id == holdId }
+        assertEquals(before.first().x + 65f, moved.x, 0.01f)
+        assertEquals(before.first().y + 38f, moved.y, 0.01f)
+        assertEquals("hold", moved.actionType)
+    }
+
+    private fun configureMixed(repeat: Boolean) = runBlocking {
+        withContext(Dispatchers.Main.immediate) {
+            PresetSession.editPoints(activity, fixtureId) {
+                listOf(
+                    HighlightingPoint(holdId, centerX - 80, centerY, 7, 100, "hold"),
+                    HighlightingPoint("integration-h2", centerX + 80, centerY, 20, 100, "hold"),
+                    HighlightingPoint("integration-tap", centerX, centerY + 150, 2, 100),
+                    HighlightingPoint("integration-drag", centerX - 100, centerY + 200, 9, 100,
+                        "drag", centerX + 100, centerY + 200, 350))
+            }
+            PresetSession.editSettings(activity, fixtureId, PresetSettings(100, 350, 0, repeat, false))
+        }
+    }
+
+    private fun sendCommand(action: String, extras: Intent.() -> Unit = {}) {
+        activity.sendBroadcast(Intent(action).apply { setPackage(activity.packageName); extras() })
     }
 
     private fun startAndAwaitDown() {
@@ -488,8 +796,8 @@ class HoldIntegrationTest {
         down.source = InputDevice.SOURCE_TOUCHSCREEN
         up.source = InputDevice.SOURCE_TOUCHSCREEN
         try {
-            // The normal injection API skips this filter and cannot simulate a physical touch
-            // cancelling an accessibility gesture. The platform test API enters the real filter.
+            // Use the filter for overlay input handoff. Cancellation is separately verified
+            // with host-generated hardware input, not this instrumentation test hook.
             val filterInjection = if (throughAccessibilityFilter) UiAutomation::class.java
                 .getMethod("injectInputEventToInputFilter", InputEvent::class.java) else null
             if (filterInjection != null) filterInjection.invoke(automation, down)
@@ -518,7 +826,10 @@ class HoldIntegrationTest {
         val time: Long,
         val x: Float,
         val y: Float,
-        val managerVisible: Boolean
+        val managerVisible: Boolean,
+        val pointerIds: List<Int>,
+        val actionId: Int,
+        val coordinates: Map<Int, Pair<Float, Float>>
     )
 
     private class RecordingView(context: Context) : View(context) {
@@ -530,9 +841,13 @@ class HoldIntegrationTest {
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
-            if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE || event.actionMasked == MotionEvent.ACTION_UP ||
-                event.actionMasked == MotionEvent.ACTION_CANCEL
-            ) events.add(TouchSample(event.actionMasked, event.eventTime, event.rawX, event.rawY, TouchPointerOverlay.isShowing()))
+            val ids = (0 until event.pointerCount).map { event.getPointerId(it) }
+            val offsetX = event.rawX - event.x
+            val offsetY = event.rawY - event.y
+            events.add(TouchSample(event.actionMasked, event.eventTime, event.rawX, event.rawY,
+                TouchPointerOverlay.isShowing(), ids, event.getPointerId(event.actionIndex),
+                (0 until event.pointerCount).associate { event.getPointerId(it) to
+                    (event.getX(it) + offsetX to event.getY(it) + offsetY) }))
             return true
         }
 

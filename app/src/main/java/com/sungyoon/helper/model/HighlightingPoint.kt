@@ -18,6 +18,7 @@ data class HighlightingPoint(
     companion object {
         const val ACTION_TYPE_TAP = "tap"
         const val ACTION_TYPE_DRAG = "drag"
+        const val ACTION_TYPE_HOLD = "hold"
         const val DEFAULT_DRAG_DURATION_MS = 1000L
     }
 }

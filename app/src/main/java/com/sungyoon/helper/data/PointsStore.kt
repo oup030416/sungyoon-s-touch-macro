@@ -7,7 +7,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
-import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_TAP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOn
@@ -71,7 +70,6 @@ object PointsStore {
                 old.copy(
                     x = x,
                     y = y,
-                    actionType = ACTION_TYPE_TAP,
                     dragToX = x,
                     dragToY = y
                 )
@@ -162,7 +160,7 @@ object PointsStore {
                 if (p.actionType == ACTION_TYPE_DRAG) {
                     p.copy(x = nx, y = ny, dragToX = ndx, dragToY = ndy)
                 } else {
-                    p.copy(x = nx, y = ny, actionType = ACTION_TYPE_TAP, dragToX = nx, dragToY = ny)
+                    p.copy(x = nx, y = ny, dragToX = nx, dragToY = ny)
                 }
             }
             val encoded = json.encodeToString(listSer, migrated)

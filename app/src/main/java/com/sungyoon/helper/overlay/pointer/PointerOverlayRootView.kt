@@ -19,6 +19,7 @@ import android.widget.ScrollView
 import androidx.core.view.children
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.HighlightingPoint
+import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_HOLD
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.PresetEntry
 import com.sungyoon.helper.util.PointerSizeSpec
@@ -56,7 +57,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private var suppressRandomRadiusListener = false
     private var suppressSecondsListeners = false
     private var editingReady = false
-    private var holdMode = false
 
     private var onDeletePointClick: ((String) -> Unit)? = null
 
@@ -265,7 +265,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         setupMoveStickHandleDrag()
 
         deletePointerBtn.setOnClickListener {
-            if (!editingReady || holdMode) return@setOnClickListener
+            if (!editingReady) return@setOnClickListener
             val id = selectedId ?: return@setOnClickListener
             clearSelection()
             onDeletePointClick?.invoke(id)
@@ -888,6 +888,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.addDragBtn.setOnClickListener { block() }
     }
 
+    fun setOnAddHoldClick(block: () -> Unit) {
+        controls.addHoldBtn.setOnClickListener { block() }
+    }
+
     fun setOnClearAllClick(block: () -> Unit) {
         controls.clearAllBtn.setOnClickListener { block() }
     }
@@ -908,11 +912,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.touchAnimToggleBtn.setOnClickListener { block() }
     }
 
-    fun setEditingState(ready: Boolean, hold: Boolean) {
+    fun setEditingState(ready: Boolean) {
         editingReady = ready
-        holdMode = hold
-        val normalEnabled = ready && !hold
-        listOf<View>(controls.addBtn, controls.addDragBtn, controls.clearAllBtn,
+        val normalEnabled = ready
+        listOf<View>(controls.addBtn, controls.addDragBtn, controls.addHoldBtn, controls.clearAllBtn,
             controls.playToggleBtn, controls.reserveBtn, controls.repeatToggleBtn,
             controls.touchAnimToggleBtn, controls.intervalEdit, controls.dragDurationEdit,
             controls.randomRadiusSeek, deletePointerBtn).forEach {
@@ -921,13 +924,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         }
         moveStickHandle.isEnabled = ready
         presetPanel.setEditingReady(ready)
-        if (hold) {
-            closeReservationPanel()
-            controls.hintText.text = context.getString(if (android.os.Build.VERSION.SDK_INT < 26)
-                R.string.hold_requires_android_8 else R.string.hold_pointer_hint)
-        } else {
-            controls.hintText.setText(R.string.pointer_control_hint)
-        }
+        controls.hintText.setText(R.string.pointer_control_hint)
     }
 
     fun setSequenceRunning(running: Boolean) {
@@ -959,7 +956,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun afterTextChanged(s: Editable?) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                if (suppressSecondsListeners || !editingReady || holdMode) return
+                if (suppressSecondsListeners || !editingReady) return
                 val raw = s?.toString().orEmpty()
                 if (raw.isBlank() || raw.endsWith(".")) return
                 val v = raw.toFloatOrNull() ?: return
@@ -991,7 +988,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun afterTextChanged(s: Editable?) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                if (suppressSecondsListeners || !editingReady || holdMode) return
+                if (suppressSecondsListeners || !editingReady) return
                 val raw = s?.toString().orEmpty()
                 if (raw.isBlank() || raw.endsWith(".")) return
                 val v = raw.toFloatOrNull() ?: return
@@ -1354,7 +1351,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private fun refreshRandomRadiusViews() {
         val tapIds = lastPoints.asSequence()
-            .filter { it.actionType != ACTION_TYPE_DRAG }
+            .filter { it.actionType != ACTION_TYPE_DRAG && it.actionType != ACTION_TYPE_HOLD }
             .map { it.id }
             .toHashSet()
 
@@ -1367,7 +1364,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         if (randomTouchRadiusDp <= 0) return
 
         for (point in lastPoints) {
-            if (point.actionType == ACTION_TYPE_DRAG) {
+            if (point.actionType == ACTION_TYPE_DRAG || point.actionType == ACTION_TYPE_HOLD) {
                 removeRandomRadiusForPoint(point.id)
             } else {
                 updateRandomRadiusForPoint(point.id)
@@ -1385,7 +1382,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             removeRandomRadiusForPoint(pointId)
             return
         }
-        if (point.actionType == ACTION_TYPE_DRAG) {
+        if (point.actionType == ACTION_TYPE_DRAG || point.actionType == ACTION_TYPE_HOLD) {
             removeRandomRadiusForPoint(pointId)
             return
         }

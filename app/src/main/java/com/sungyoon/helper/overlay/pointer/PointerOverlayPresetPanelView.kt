@@ -17,6 +17,7 @@ import android.widget.TextView
 import android.view.ViewGroup
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.PresetEntry
+import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_HOLD
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -124,7 +125,7 @@ class PointerOverlayPresetPanelView(
     }
 
     fun setPresets(entries: List<PresetEntry>) {
-        presets = entries.sortedWith(compareByDescending<PresetEntry> { it.isHold }.thenByDescending { it.createdAtEpochMs })
+        presets = entries.sortedWith(compareByDescending<PresetEntry> { it.createdAtEpochMs })
         if (selectedPresetId != null && presets.none { it.id == selectedPresetId }) {
             selectedPresetId = null
         }
@@ -243,7 +244,8 @@ class PointerOverlayPresetPanelView(
     private fun buildPresetItem(preset: PresetEntry): View {
         val selected = preset.id == selectedPresetId
         val dragCount = preset.points.count { it.actionType == ACTION_TYPE_DRAG }
-        val tapCount = preset.points.size - dragCount
+        val holdCount = preset.points.count { it.actionType == ACTION_TYPE_HOLD }
+        val tapCount = preset.points.size - dragCount - holdCount
         return LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -293,7 +295,7 @@ class PointerOverlayPresetPanelView(
             )
             addView(
                 TextView(context).apply {
-                    text = if (preset.isHold) context.getString(R.string.hold_preset_description) else context.getString(R.string.preset_count, tapCount, dragCount)
+                    text = context.getString(R.string.preset_count, tapCount, dragCount, holdCount)
                     setTextColor(Color.parseColor("#D7D7D7"))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -302,7 +304,7 @@ class PointerOverlayPresetPanelView(
             )
             addView(
                 TextView(context).apply {
-                    text = if (preset.isHold) context.getString(R.string.hold_preset_protected) else context.getString(
+                    text = context.getString(
                         R.string.preset_date, dateFormat.format(Date(preset.createdAtEpochMs))
                     )
                     setTextColor(Color.parseColor("#A8A8A8"))
@@ -319,8 +321,7 @@ class PointerOverlayPresetPanelView(
     }
 
     private fun syncActionButtons() {
-        val hold = selectedPresetId == PresetEntry.HOLD_PRESET_ID
-        val enabled = editingReady && selectedPresetId != null && !hold
+        val enabled = editingReady && selectedPresetId != null
         deleteBtn.isEnabled = enabled
         deleteBtn.alpha = if (enabled) 1f else 0.45f
         addCurrentBtn.isEnabled = editingReady

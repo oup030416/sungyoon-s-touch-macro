@@ -14,6 +14,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.sungyoon.helper.data.*
+import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.PresetEntry
 import com.sungyoon.helper.model.PresetSettings
 import com.sungyoon.helper.overlay.pointer.PointerOverlayRootView
@@ -61,45 +62,29 @@ class PresetPersistenceTest {
                 resetSession()
                 PresetSession.initialize(context)
                 val oldEntries = PresetStore.decodeEntries(rawPresets)
-                assertEquals(oldEntries, PresetStore.read(context).entries.filterNot { it.isHold })
+                assertEquals(oldEntries, PresetStore.read(context).entries)
                 assertEquals(rawPoints, points.data.first()[pointsKey])
                 val unbound = PresetSession.state.value.points
 
-                withContext(Dispatchers.Main.immediate) {
-                    PresetSession.activate(context, PresetEntry.HOLD_PRESET_ID, 360f, 640f)
+                // Upgrade from a renamed, active built-in must retain the ordinary working data.
+                presets.edit {
+                    it[presetKey] = PresetStore.encodeEntries(oldEntries + PresetEntry(
+                        id = "builtin_touch_hold", name = "이름 바꾼 홀드", createdAtEpochMs = 0,
+                        points = listOf(com.sungyoon.helper.model.PresetPoint(0, x = 400f, y = 600f)), autoNameOrdinal = -1))
+                    it[stringPreferencesKey("active_preset_id")] = "builtin_touch_hold"
                 }
-                val saved = PresetStore.read(context)
-                assertEquals(1, saved.entries.count { it.isHold })
-                val backup = saved.entries.single { it.name == context.getString(R.string.preset_previous_touches) }
-                assertEquals(PresetSession.toPresetPoints(unbound), backup.points)
-                assertEquals(originalSettings, backup.settings)
-                assertEquals(rawPoints, points.data.first()[pointsKey])
-                PresetSession.editPoints(context, PresetEntry.HOLD_PRESET_ID) {
-                    it.map { p -> p.copy(x = 400f, dragToX = 400f) }
-                }
-                assertEquals(rawPoints, points.data.first()[pointsKey])
-                PresetSession.rename(context, PresetEntry.HOLD_PRESET_ID, "이름 바꾼 홀드")
-                assertFalse(PresetStore.deletePreset(context, PresetEntry.HOLD_PRESET_ID))
                 resetSession()
                 PresetSession.initialize(context)
-                assertEquals(PresetEntry.HOLD_PRESET_ID, PresetSession.state.value.activeId)
-                assertEquals(400f, PresetSession.state.value.points.single().x, 0f)
-                assertEquals(1, PresetSession.state.value.entries.count { it.isHold })
-
-                val beforeEmptyPreset = PresetStore.read(context).entries
-                withContext(Dispatchers.Main.immediate) { PresetSession.addCurrent(context) }
-                val emptyPresetId = PresetSession.state.value.activeId!!
-                assertFalse(PresetSession.state.value.isHold)
-                assertTrue(PresetSession.state.value.points.isEmpty())
-                assertTrue(PointsStore.pointsFlow(context).first().isEmpty())
-                val afterEmptyPreset = PresetStore.read(context).entries
-                assertEquals(beforeEmptyPreset, afterEmptyPreset.filterNot { it.id == emptyPresetId })
-                assertTrue(afterEmptyPreset.single { it.id == emptyPresetId }.points.isEmpty())
-                assertEquals(originalSettings, afterEmptyPreset.single { it.id == emptyPresetId }.settings)
-                withContext(Dispatchers.Main.immediate) { PresetSession.activate(context, PresetEntry.HOLD_PRESET_ID, 0f, 0f) }
-                assertEquals(400f, PresetSession.state.value.points.single().x, 0f)
-
-                withContext(Dispatchers.Main.immediate) { PresetSession.activate(context, "legacy-a", 0f, 0f) }
+                assertNull(PresetSession.state.value.activeId)
+                assertEquals(oldEntries, PresetStore.read(context).entries)
+                assertEquals(rawPoints, points.data.first()[pointsKey])
+                resetSession()
+                PresetSession.initialize(context)
+                assertEquals(oldEntries, PresetStore.read(context).entries)
+                withContext(Dispatchers.Main.immediate) { PresetSession.activate(context, "legacy-a") }
+                val backup = PresetStore.read(context).entries.single { it.name == context.getString(R.string.preset_previous_touches) }
+                assertEquals(PresetSession.toPresetPoints(unbound), backup.points)
+                assertEquals(originalSettings, backup.settings)
                 assertEquals(originalSettings, PresetSession.state.value.settings)
                 assertEquals(oldEntries[0].points, PresetSession.toPresetPoints(PresetSession.state.value.points))
                 val untouched = PresetStore.read(context).entries.single { it.id == "legacy-b" }
@@ -110,6 +95,14 @@ class PresetPersistenceTest {
                 } }
                 assertEquals(beforeEdit[1], PresetSession.state.value.points[1])
                 assertEquals(editId, PresetSession.state.value.points[0].id)
+                PresetSession.editPoints(context, "legacy-a") { it + HighlightingPoint(
+                    id = "mixed-hold", x = 321.25f, y = 540.75f, index = 20, delayMs = 800, actionType = "hold") }
+                PointsStore.updatePointPosition(context, "mixed-hold", 325.5f, 544.5f)
+                assertEquals("hold", PointsStore.pointsFlow(context).first().single { it.id == "mixed-hold" }.actionType)
+                // Recover canonical preset content after an interrupted working-store write.
+                resetSession()
+                PresetSession.initialize(context)
+                assertEquals(321.25f, PointsStore.pointsFlow(context).first().single { it.id == "mixed-hold" }.x, 0f)
                 val beforeOpen = presets.data.first()[presetKey]
                 withContext(Dispatchers.Main.immediate) { TouchPointerOverlay.show(context) }
                 withTimeout(5_000) { while (overlayRoot()?.getSelectedPresetId() != "legacy-a") delay(25) }
@@ -123,7 +116,7 @@ class PresetPersistenceTest {
                     PresetStore.read(context).entries.single { it.id == "legacy-a" }.settings!!.tapIntervalMs)
                 val custom = PresetSettings(450, 1900, 11, false, false)
                 PresetSession.editSettings(context, "legacy-a", custom)
-                withContext(Dispatchers.Main.immediate) { PresetSession.activate(context, "legacy-b", 0f, 0f) }
+                withContext(Dispatchers.Main.immediate) { PresetSession.activate(context, "legacy-b") }
                 val activeB = PresetSession.state.value.points
                 PresetSession.editPoints(context, "legacy-a") { emptyList() }
                 PresetSession.editSettings(context, "legacy-a", PresetSettings())
@@ -149,7 +142,7 @@ class PresetPersistenceTest {
                 resetSession()
                 assertTrue(runCatching { PresetSession.initialize(context) }.isFailure)
                 assertFalse(PresetSession.state.value.ready)
-                assertTrue(runCatching { PresetSession.activate(context, "legacy-a", 0f, 0f) }.isFailure)
+                assertTrue(runCatching { PresetSession.activate(context, "legacy-a") }.isFailure)
                 assertEquals("[broken", presets.data.first()[presetKey])
                 presets.edit { it[presetKey] = validPresets }
                 points.edit { it[pointsKey] = "[broken-points" }
@@ -174,19 +167,19 @@ class PresetPersistenceTest {
         }
     }
 
-    @Test fun programmaticSettingsDoNotAutosaveAndHoldDisablesMutationControls() {
+    @Test fun programmaticSettingsDoNotAutosaveAndAllPointerTypesCanBeEdited() {
         instrumentation.runOnMainSync {
             val view = PointerOverlayRootView(instrumentation.targetContext)
             var edits = 0
             view.setOnTapIntervalChanged { edits++ }
             view.setOnDragDurationChanged { edits++ }
-            view.setEditingState(true, false)
+            view.setEditingState(true)
             view.setTapIntervalSeconds(2.5f)
             view.setDragDurationSeconds(1.8f)
             assertEquals(0, edits)
             controls(view).intervalEdit.setText("0.7")
             assertEquals(1, edits)
-            view.setEditingState(true, true)
+            view.setEditingState(false)
             val buttons = controls(view)
             assertFalse(buttons.addBtn.isEnabled)
             assertFalse(buttons.addDragBtn.isEnabled)
@@ -202,10 +195,11 @@ class PresetPersistenceTest {
             assertTrue(buttons.collapseBtn.isEnabled)
             val panel = PointerOverlayRootView::class.java.getDeclaredField("presetPanel").apply { isAccessible = true }.get(view)
             val addPreset = panel.javaClass.getDeclaredField("addCurrentBtn").apply { isAccessible = true }.get(panel) as android.widget.Button
-            assertTrue("Hold mode must allow a new empty normal preset", addPreset.isEnabled)
+            assertFalse(addPreset.isEnabled)
             assertEquals("프리셋 추가", addPreset.text.toString())
-            assertEquals("H", instrumentation.targetContext.getString(R.string.hold_pointer_label))
-            view.setEditingState(true, false)
+            assertEquals("H2", instrumentation.targetContext.getString(R.string.hold_pointer_label, 2))
+            view.setEditingState(true)
+            assertTrue(buttons.addHoldBtn.isEnabled)
             assertTrue(buttons.addBtn.isEnabled)
             assertTrue(buttons.intervalEdit.isEnabled)
         }

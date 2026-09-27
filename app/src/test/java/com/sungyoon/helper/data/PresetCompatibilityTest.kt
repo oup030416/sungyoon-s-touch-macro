@@ -37,20 +37,28 @@ class PresetCompatibilityTest {
         assertEquals(emptyList<PresetEntry>(), PresetStore.decodeEntries(null))
     }
 
-    @Test fun duplicateProtectedPresetsAreRejectedAndRenamingKeepsProtection() {
-        val hold = PresetEntry(PresetEntry.HOLD_PRESET_ID, "renamed", 0, emptyList(), -1)
-        assertTrue(hold.isHold)
-        assertTrue(runCatching { PresetStore.decodeEntries(PresetStore.encodeEntries(listOf(hold, hold))) }.isFailure)
-        assertTrue(runCatching { PresetStore.decodeEntries(PresetStore.encodeEntries(listOf(
-            hold.copy(points = listOf(PresetPoint(0, x = 1f, y = 2f), PresetPoint(1, x = 3f, y = 4f)))
-        ))) }.isFailure)
+    @Test fun retirementRemovesOnlyTheFixedIdAndClearsOnlyItsActiveConnection() {
+        val old = PresetStore.decodeEntries(legacy).single()
+        val hold = old.copy(id = PresetStore.LEGACY_HOLD_PRESET_ID, name = "renamed hold")
+        val sameName = old.copy(id = "same-name", name = "터치 홀드 프리셋")
+        val original = PresetStore.Snapshot(listOf(old, hold, sameName), hold.id, 17)
+        val cleaned = PresetStore.withoutLegacyHold(original)
+        assertEquals(listOf(old, sameName), cleaned.entries)
+        assertNull(cleaned.activeId)
+        assertEquals(17, cleaned.nextOrdinal)
+        assertEquals(cleaned, PresetStore.withoutLegacyHold(cleaned))
+        assertEquals(old.id, PresetStore.withoutLegacyHold(original.copy(activeId = old.id)).activeId)
+        assertTrue(runCatching { PresetStore.decodeEntries(PresetStore.encodeEntries(listOf(old, old))) }.isFailure)
     }
 
-    @Test fun holdSortsFirstWithoutChangingOrdinaryPresetOrder() {
+    @Test fun mixedPointersRoundTripWithoutChangingLegacyFieldsOrOrder() {
         val old = PresetStore.decodeEntries(legacy).single()
-        val newer = old.copy(id = "newer", createdAtEpochMs = 456)
-        val hold = PresetEntry(PresetEntry.HOLD_PRESET_ID, "hold", 0, emptyList(), -1)
-        assertEquals(listOf(hold, newer, old), PresetStore.sortEntries(listOf(old, hold, newer)))
+        val hold = PresetPoint(17, "hold", 321.75f, 440.25f)
+        val mixed = old.copy(points = old.points + hold)
+        assertEquals(mixed, PresetStore.decodeEntries(PresetStore.encodeEntries(listOf(mixed))).single())
+        val working = listOf(HighlightingPoint("h-id", hold.x, hold.y, hold.index, 350, "hold"))
+        val entry = mixed.copy(points = listOf(hold))
+        assertEquals(working, PresetSession.materialize(entry, working, PresetSettings()))
     }
 
     @Test fun restoringActivePresetPreservesWorkingPointerIdsAndPerPointValues() {
