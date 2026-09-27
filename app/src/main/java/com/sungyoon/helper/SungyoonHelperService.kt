@@ -5,12 +5,14 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Rect
 import android.util.Log
 import com.sungyoon.helper.data.PresetSession
 import com.sungyoon.helper.service.HoldGestureRunner
 import kotlinx.coroutines.CoroutineExceptionHandler
 import android.view.WindowManager
 import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.core.content.ContextCompat
 import com.sungyoon.helper.data.DragDurationStore
 import com.sungyoon.helper.data.PointerSizeStore
@@ -23,6 +25,7 @@ import com.sungyoon.helper.data.TapIntervalStore
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_HOLD
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
+import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_TAP
 import com.sungyoon.helper.overlay.floating.FloatingToggleOverlayController
 import com.sungyoon.helper.service.highlight.SequenceOverlayController
 import kotlinx.coroutines.CoroutineScope
@@ -640,7 +643,52 @@ class SungyoonHelperService : AccessibilityService() {
                 overlay?.moveTo(tapX, tapY, label = label)
                 overlay?.triggerPop()
             }
-            holdRunner?.tap(tapX, tapY)
+            if (point.actionType == ACTION_TYPE_TAP && holdRunner?.isRunning == true &&
+                clickAccessibleTarget(tapX, tapY)
+            ) {
+                // Match the ordinary tap duration without introducing another touch contact.
+                delay(50L)
+            } else {
+                holdRunner?.tap(tapX, tapY)
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun clickAccessibleTarget(x: Float, y: Float): Boolean {
+        var visited = 0
+        fun findTarget(node: AccessibilityNodeInfo, depth: Int): AccessibilityNodeInfo? {
+            check(++visited <= 256 && depth <= 40) { "Accessibility target search limit exceeded" }
+            if (!node.isVisibleToUser || !node.isEnabled) return null
+            val bounds = Rect()
+            node.getBoundsInScreen(bounds)
+            if (x < bounds.left || x >= bounds.right || y < bounds.top || y >= bounds.bottom) return null
+            // Prefer the deepest matching control; inspect later children first for overlaps.
+            for (index in node.childCount - 1 downTo 0) {
+                val child = node.getChild(index) ?: continue
+                try {
+                    findTarget(child, depth + 1)?.let { return it }
+                } finally {
+                    child.recycle()
+                }
+            }
+            return if (node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_CLICK }) {
+                AccessibilityNodeInfo.obtain(node)
+            } else null
+        }
+
+        return try {
+            val root = rootInActiveWindow ?: return false
+            val target = try { findTarget(root, 0) } finally { root.recycle() } ?: return false
+            try {
+                target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+            } finally {
+                target.recycle()
+            }
+        } catch (error: RuntimeException) {
+            // A changing/inaccessible window must not interrupt holds or the ordinary sequence.
+            Log.w(TAG, "Accessible click unavailable; falling back to the gesture", error)
+            false
         }
     }
 

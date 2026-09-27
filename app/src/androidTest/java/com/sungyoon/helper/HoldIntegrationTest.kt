@@ -17,6 +17,8 @@ import android.view.InputEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.TextView
+import android.widget.Button
+import android.widget.FrameLayout
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sungyoon.helper.data.PresetSession
 import com.sungyoon.helper.data.PresetStore
@@ -490,6 +492,54 @@ class HoldIntegrationTest {
         awaitReleased()
         assertEquals(1, target.events.count { it.action == MotionEvent.ACTION_UP })
         assertFalse(target.events.any { it.action == MotionEvent.ACTION_CANCEL })
+    }
+
+    @Test fun testHoldClicksStandardButtonWithoutAddingAnotherContact() {
+        val clicks = java.util.concurrent.atomic.AtomicInteger()
+        lateinit var button: Button
+        instrumentation.runOnMainSync {
+            (target.parent as android.view.ViewGroup).removeView(target)
+            val container = FrameLayout(activity).apply { isMotionEventSplittingEnabled = false }
+            container.addView(target, FrameLayout.LayoutParams(-1, -1))
+            button = Button(activity).apply {
+                contentDescription = "hold-click-test"
+                setOnClickListener { clicks.incrementAndGet() }
+            }
+            container.addView(button, FrameLayout.LayoutParams(200, 100).apply {
+                leftMargin = 40
+                topMargin = 80
+            })
+            activity.setContentView(container)
+        }
+        await("Standard button did not receive layout") { button.width > 0 }
+        var tapX = 0f
+        var tapY = 0f
+        instrumentation.runOnMainSync {
+            val location = IntArray(2)
+            button.getLocationOnScreen(location)
+            tapX = location[0] + button.width / 2f
+            tapY = location[1] + button.height / 2f
+        }
+        runBlocking {
+            withContext(Dispatchers.Main.immediate) {
+                PresetSession.editPoints(activity, fixtureId) { points ->
+                    points + HighlightingPoint("integration-button", tapX, tapY, 1, 100)
+                }
+            }
+        }
+        instrumentation.waitForIdleSync()
+        startAndAwaitDown()
+        await("The button was not clicked while holding") { clicks.get() == 1 }
+        await("The ordinary sequence did not finish") {
+            runBlocking { !SequencePrefsStore.sequenceRunningFlow(activity).first() }
+        }
+        assertTrue("The click released the hold", isHolding())
+        assertEquals(1, target.downCount())
+        assertEquals(0, target.endCount())
+        assertFalse("The semantic click also injected a tap", target.events.any { it.pointerIds.size > 1 })
+        instrumentation.runOnMainSync { setPlayback(false) }
+        awaitReleased()
+        assertEquals(1, clicks.get())
     }
 
     @Test fun testOrdinaryOnlyFloatingToggleTurnsOffAfterCompletion() {
@@ -996,6 +1046,12 @@ class HoldIntegrationTest {
         init {
             setBackgroundColor(Color.rgb(30, 36, 45))
             isClickable = true
+        }
+
+        override fun onInitializeAccessibilityNodeInfo(info: android.view.accessibility.AccessibilityNodeInfo) {
+            super.onInitializeAccessibilityNodeInfo(info)
+            // This raw-input target has no click action; exercise gesture fallback explicitly.
+            info.removeAction(android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction.ACTION_CLICK)
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
