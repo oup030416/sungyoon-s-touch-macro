@@ -236,21 +236,19 @@ class SetListPanelView(
     }
 
     private fun buildInlineMenu(menu: InlineMenu): LinearLayout = LinearLayout(context).apply {
-        orientation = VERTICAL
+        orientation = HORIZONTAL
+        isBaselineAligned = false
         setPadding(0, context.setDp(12), 0, 0)
-        addView(View(context).apply { setBackgroundColor(Color.parseColor("#445A5A5A")) },
-            LayoutParams(LayoutParams.MATCH_PARENT, context.setDp(1)))
-        addView(LinearLayout(context).apply {
-            orientation = HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            addView(context.setText(context.getString(R.string.set_item_menu), 13f, true),
-                LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-            addView(context.setAction(context.getString(R.string.set_menu_collapse), Color.parseColor("#3A3A3A"), menu.onClose))
-        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(8) })
         menu.options.forEach { (label, action) ->
-            addView(context.setAction(label, Color.parseColor("#3A3A3A"), action),
-                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(8) })
+            addView(context.setAction(label, Color.parseColor("#3A3A3A"), action).apply {
+                textSize = 12.5f
+                setPadding(context.setDp(4), context.setDp(10), context.setDp(4), context.setDp(10))
+            }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = context.setDp(6) })
         }
+        addView(context.setAction(context.getString(R.string.set_item_close), Color.parseColor("#3A3A3A"), menu.onClose).apply {
+            contentDescription = context.getString(R.string.set_item_close_description)
+            setPadding(context.setDp(4), context.setDp(10), context.setDp(4), context.setDp(10))
+        }, LayoutParams(context.setDp(40), LayoutParams.MATCH_PARENT))
         inlineMenuView = this
     }
 
