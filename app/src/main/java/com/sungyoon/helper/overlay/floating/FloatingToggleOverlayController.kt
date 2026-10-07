@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.os.Build
 import android.view.Gravity
 import android.view.MotionEvent
@@ -19,7 +20,8 @@ class FloatingToggleOverlayController(
     private val context: Context,
     private val overlayType: Int,
     private val onToggle: () -> Unit,
-    private val isOn: () -> Boolean
+    private val isOn: () -> Boolean,
+    private val onPositionChanged: () -> Unit = {}
 ) {
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
@@ -90,6 +92,15 @@ class FloatingToggleOverlayController(
 
     fun isShowing(): Boolean = added
 
+    fun anchorBounds(): Rect? {
+        if (!added) return null
+        val button = view ?: return null
+        if (button.width <= 0 || button.height <= 0) return Rect(lp.x, lp.y, lp.x + sizePx, lp.y + sizePx)
+        val location = IntArray(2)
+        button.getLocationOnScreen(location)
+        return Rect(location[0], location[1], location[0] + button.width, location[1] + button.height)
+    }
+
     fun show() {
         if (added) return
 
@@ -137,6 +148,8 @@ class FloatingToggleOverlayController(
                     )
 
                     try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
+                    onPositionChanged()
+                    v.post { if (added) onPositionChanged() }
                     true
                 }
 
@@ -181,6 +194,8 @@ class FloatingToggleOverlayController(
         }
 
         registerConfigReceiver()
+        onPositionChanged()
+        v.post { if (added) onPositionChanged() }
     }
 
     fun hide() {
@@ -194,6 +209,7 @@ class FloatingToggleOverlayController(
         view = null
         added = false
         dragging = false
+        onPositionChanged()
     }
 
     fun invalidate() {
@@ -293,6 +309,8 @@ class FloatingToggleOverlayController(
 
         lastScreenW = screenW
         lastScreenH = screenH
+        onPositionChanged()
+        v.post { if (added) onPositionChanged() }
     }
 
     private fun clampIntoScreen(screenW: Int, screenH: Int) {
@@ -350,6 +368,8 @@ class FloatingToggleOverlayController(
 
                 remapPositionOnRotation(sw, sh)
                 try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
+                onPositionChanged()
+                v.post { if (added) onPositionChanged() }
             }
         }
 

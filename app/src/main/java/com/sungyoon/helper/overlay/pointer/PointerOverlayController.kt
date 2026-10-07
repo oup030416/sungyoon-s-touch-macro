@@ -24,18 +24,28 @@ import com.sungyoon.helper.data.RandomTouchRadiusStore
 import com.sungyoon.helper.data.ReservationPrefsStore
 import com.sungyoon.helper.data.ReservationRuntimeStore
 import com.sungyoon.helper.data.SequencePrefsStore
+import com.sungyoon.helper.data.SetStore
 import com.sungyoon.helper.data.TapIntervalStore
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_TAP
 import com.sungyoon.helper.model.PresetEntry
+import com.sungyoon.helper.model.SetItem
+import com.sungyoon.helper.overlay.set.SetEditorCoordinator
+import com.sungyoon.helper.overlay.set.SetEditorHost
+import com.sungyoon.helper.service.set.SetRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 
 class PointerOverlayController(private val app: Context) {
@@ -52,6 +62,16 @@ class PointerOverlayController(private val app: Context) {
     private var dragDurationPersistJob: Job? = null
     private var randomRadiusPersistJob: Job? = null
     private var collectStartFallbackJob: Job? = null
+    private var showRequestJob: Job? = null
+    private var closeRequestJob: Job? = null
+    private var setEditor: SetEditorCoordinator? = null
+    private val pointerRepository = PointerEditRepository(app)
+    private val editTarget = MutableStateFlow<PointerEditTarget>(PointerEditTarget.Global)
+    private val pendingWrites = mutableSetOf<Job>()
+    private var managerPausedSet = false
+    private var closing = false
+    private var startingSet = false
+    private var presetSession = 0L
 
     private var latestPoints: List<HighlightingPoint> = emptyList()
     private var latestPresets: List<PresetEntry> = emptyList()
@@ -77,6 +97,17 @@ class PointerOverlayController(private val app: Context) {
     fun isShowing(): Boolean = added
 
     fun show(forceOpenControlPanel: Boolean = false) {
+        if (added || closing) return
+        if (SetRuntime.active && !SetRuntime.state.value.paused) {
+            if (showRequestJob?.isActive == true) return
+            sendSetCommand(SungyoonHelperService.ACTION_PAUSE_SET)
+            showRequestJob = scope.launch {
+                SetRuntime.state.first { !it.active || it.paused }
+                showRequestJob = null
+                show(forceOpenControlPanel)
+            }
+            return
+        }
         try {
             app.sendBroadcast(
                 Intent(SungyoonHelperService.ACTION_PAUSE_RESERVATION).apply {
@@ -85,7 +116,7 @@ class PointerOverlayController(private val app: Context) {
             )
         } catch (_: Throwable) {}
 
-        requestStopSequence()
+        if (!SetRuntime.active) requestStopSequence()
         sequenceRunning = false
         if (added) return
 
@@ -112,6 +143,10 @@ class PointerOverlayController(private val app: Context) {
             }
 
             setOnReservationStartClick { runSec, restSec, repeatCount ->
+                if (SetRuntime.active) {
+                    toast(app.getString(R.string.set_blocked_message))
+                    return@setOnReservationStartClick
+                }
                 scope.launch {
                     val active = ReservationRuntimeStore.activeFlow(app).first()
                     val paused = ReservationRuntimeStore.pausedFlow(app).first()
@@ -181,17 +216,22 @@ class PointerOverlayController(private val app: Context) {
             }
 
             setOnPresetListClick {
+                presetSession++
                 openPresetPanel()
             }
 
+            setOnSetClick { setEditor?.open() }
+
             setOnClearAllClick {
-                scope.launch {
-                    PointsStore.clear(app)
+                val target = editTarget.value
+                launchWrite {
+                    pointerRepository.clear(target)
                     toast(app.getString(R.string.toast_clear_all_done))
                 }
             }
 
             setOnPresetAddCurrentClick {
+                if (editTarget.value != PointerEditTarget.Global) return@setOnPresetAddCurrentClick
                 scope.launch {
                     ensurePointsLoaded()
                     val created = PresetStore.addPreset(app, latestPoints)
@@ -235,6 +275,7 @@ class PointerOverlayController(private val app: Context) {
             }
 
             setOnPresetUpdateClick { presetId ->
+                if (editTarget.value != PointerEditTarget.Global) return@setOnPresetUpdateClick
                 val preset = latestPresets.firstOrNull { it.id == presetId } ?: return@setOnPresetUpdateClick
                 showConfirmationDialog(
                     title = app.getString(R.string.preset_update_title),
@@ -255,24 +296,32 @@ class PointerOverlayController(private val app: Context) {
 
             setOnPresetLoadClick { presetId ->
                 val preset = latestPresets.firstOrNull { it.id == presetId } ?: return@setOnPresetLoadClick
-                scope.launch {
-                    ensurePointsLoaded()
+                val target = editTarget.value
+                val sourceRoot = root ?: return@setOnPresetLoadClick
+                val sourceSession = presetSession
+                launchWrite {
+                    val existingPoints = ensurePointsLoaded(target)
                     val loadAction: suspend () -> Unit = {
-                        loadPresetIntoPoints(preset)
-                        root?.setSelectedPresetId(preset.id)
-                        root?.closePresetPanel()
-                        toast(app.getString(R.string.preset_loaded))
+                        loadPresetIntoPoints(preset, target)
+                        if (root === sourceRoot && presetSession == sourceSession && editTarget.value == target &&
+                            sourceRoot.isPresetPanelVisible()) {
+                            sourceRoot.setSelectedPresetId(preset.id)
+                            sourceRoot.closePresetPanelAndReturn()
+                            toast(app.getString(R.string.preset_loaded))
+                        }
                     }
 
-                    if (latestPoints.isNotEmpty()) {
-                        root?.showConfirmationDialog(
+                    if (existingPoints.isNotEmpty()) {
+                        if (root !== sourceRoot || presetSession != sourceSession || editTarget.value != target ||
+                            !sourceRoot.isPresetPanelVisible()) return@launchWrite
+                        sourceRoot.showConfirmationDialog(
                             title = app.getString(R.string.preset_load_title),
                             message = app.getString(R.string.preset_load_message),
                             confirmText = app.getString(R.string.dialog_load),
                             cancelText = app.getString(R.string.dialog_cancel),
                             destructive = false
                         ) {
-                            scope.launch { loadAction() }
+                            launchWrite { loadAction() }
                         }
                     } else {
                         loadAction()
@@ -280,7 +329,7 @@ class PointerOverlayController(private val app: Context) {
                 }
             }
 
-            setOnCloseClick { hide() }
+            setOnCloseClick { hide(resumeSet = true) }
 
             setOnPlayToggleClick { onPlayToggleClicked() }
 
@@ -337,8 +386,9 @@ class PointerOverlayController(private val app: Context) {
             }
 
             setOnDeletePointClick { id ->
-                scope.launch {
-                    PointsStore.deletePoint(app, id)
+                val target = editTarget.value
+                launchWrite {
+                    pointerRepository.delete(target, id)
                     toast(app.getString(R.string.toast_pointer_deleted))
                 }
             }
@@ -363,6 +413,10 @@ class PointerOverlayController(private val app: Context) {
             root = v
             added = true
             overlayLp = lp
+            managerPausedSet = SetRuntime.active
+            editTarget.value = PointerEditTarget.Global
+            setEditor = createSetEditor(v)
+            v.setOtherExecutionBlocked(SetRuntime.active)
         } catch (t: Throwable) {
             root = null
             added = false
@@ -401,42 +455,45 @@ class PointerOverlayController(private val app: Context) {
         }
 
         scope.launch {
-            tapIntervalMs = TapIntervalStore.tapIntervalMsFlow(app).first().coerceAtLeast(100L)
-            root?.setTapIntervalSeconds(tapIntervalMs / 1000f)
-            dragDurationMs = clampDragDurationMs(DragDurationStore.dragDurationMsFlow(app).first())
-            root?.setDragDurationSeconds(dragDurationMs / 1000f)
-            randomTouchRadiusDp = clampRandomRadiusDp(RandomTouchRadiusStore.randomTouchRadiusDpFlow(app).first())
-            root?.setRandomTouchRadiusDp(randomTouchRadiusDp)
-
-            sequenceRunning = SequencePrefsStore.sequenceRunningFlow(app).first()
-            repeatEnabled = SequencePrefsStore.repeatEnabledFlow(app).first()
-            touchAnimEnabled = SequencePrefsStore.touchAnimationEnabledFlow(app).first()
-
-            root?.setSequenceRunning(sequenceRunning)
-            root?.setRepeatEnabled(repeatEnabled)
-            root?.setTouchAnimationEnabled(touchAnimEnabled)
-
-
-            // ✅ 여기서 pref를 읽고
+            val savedInterval = TapIntervalStore.tapIntervalMsFlow(app).first().coerceAtLeast(100L)
+            val savedDragDuration = clampDragDurationMs(DragDurationStore.dragDurationMsFlow(app).first())
+            val savedRadius = clampRandomRadiusDp(RandomTouchRadiusStore.randomTouchRadiusDpFlow(app).first())
+            val savedSequenceRunning = SequencePrefsStore.sequenceRunningFlow(app).first()
+            val savedRepeat = SequencePrefsStore.repeatEnabledFlow(app).first()
+            val savedAnimation = SequencePrefsStore.touchAnimationEnabledFlow(app).first()
             val panelVisiblePref = SequencePrefsStore.pointerPanelVisibleFlow(app).first()
             val reservationVisiblePref = SequencePrefsStore.reservationPanelVisibleFlow(app).first()
             val presetVisiblePref = SequencePrefsStore.presetPanelVisibleFlow(app).first()
-
-            // ✅ 같은 스코프에서 바로 사용
-            val rv = root ?: return@launch
-            rv.post {
-                val v = root ?: return@post
+            val setVisiblePref = SequencePrefsStore.setPanelVisibleFlow(app).first()
+            // A delayed load must never initialize a newer window or editing session.
+            if (root !== v) return@launch
+            tapIntervalMs = savedInterval
+            dragDurationMs = savedDragDuration
+            randomTouchRadiusDp = savedRadius
+            sequenceRunning = savedSequenceRunning
+            repeatEnabled = savedRepeat
+            touchAnimEnabled = savedAnimation
+            v.setTapIntervalSeconds(savedInterval / 1000f)
+            v.setDragDurationSeconds(savedDragDuration / 1000f)
+            v.setRandomTouchRadiusDp(savedRadius)
+            v.setSequenceRunning(savedSequenceRunning)
+            v.setRepeatEnabled(savedRepeat)
+            v.setTouchAnimationEnabled(savedAnimation)
+            v.post {
+                if (root !== v) return@post
 
                 val effectivePanelVisible = if (forceOpenControlPanel) {
                     true
-                } else if (reservationVisiblePref || presetVisiblePref) {
+                } else if (reservationVisiblePref || presetVisiblePref || setVisiblePref || SetRuntime.active) {
                     true
                 } else {
                     panelVisiblePref
                 }
                 v.setControlPanelVisibleFromController(effectivePanelVisible)
 
-                if (presetVisiblePref) {
+                if (SetRuntime.active || setVisiblePref) {
+                    setEditor?.open()
+                } else if (presetVisiblePref) {
                     v.openPresetPanel()
                     v.closeReservationPanel()
                 } else if (reservationVisiblePref) {
@@ -450,16 +507,50 @@ class PointerOverlayController(private val app: Context) {
         }
     }
 
-    fun hide() {
+    fun hide(resumeSet: Boolean = false) {
+        showRequestJob?.cancel()
+        showRequestJob = null
+        if (!resumeSet) {
+            closeRequestJob?.cancel()
+            closeRequestJob = null
+            closing = false
+            removeWindow()
+            return
+        }
+        if (closing) return
+        if (resumeSet && added) {
+            closing = true
+            val editor = setEditor
+            closeRequestJob = scope.launch {
+                try {
+                    editor?.flushWrites()
+                    flushWrites()
+                    flushSharedOptions()
+                    val shouldResume = managerPausedSet && SetRuntime.active
+                    removeWindow()
+                    if (shouldResume) sendSetCommand(SungyoonHelperService.ACTION_RESUME_SET)
+                } finally {
+                    closing = false
+                    closeRequestJob = null
+                }
+            }
+        } else {
+            removeWindow()
+        }
+    }
+
+    private fun removeWindow() {
 
         root?.let { v ->
             val panelVisibleNow = v.isControlPanelVisible()
             val reservationVisibleNow = v.isReservationPanelVisible()
             val presetVisibleNow = v.isPresetPanelVisible()
+            val setVisibleNow = setEditor?.isOpen == true
             scope.launch {
                 SequencePrefsStore.setPointerPanelVisible(app, panelVisibleNow)
                 SequencePrefsStore.setReservationPanelVisible(app, reservationVisibleNow)
                 SequencePrefsStore.setPresetPanelVisible(app, presetVisibleNow)
+                SequencePrefsStore.setSetPanelVisible(app, setVisibleNow)
             }
         }
 
@@ -478,6 +569,8 @@ class PointerOverlayController(private val app: Context) {
         randomRadiusPersistJob?.cancel()
         randomRadiusPersistJob = null
         unregisterSequenceStateReceiver()
+        setEditor?.dispose()
+        setEditor = null
         if (!added) return
         root?.let {
             try { wm.removeView(it) } catch (_: Throwable) {}
@@ -486,10 +579,16 @@ class PointerOverlayController(private val app: Context) {
         added = false
         overlayLp = null
         draggingIds.clear()
+        managerPausedSet = false
+        editTarget.value = PointerEditTarget.Global
     }
 
     private fun onPlayToggleClicked() {
         val v = root ?: return
+        if (SetRuntime.active) {
+            toast(app.getString(R.string.set_blocked_message))
+            return
+        }
 
         if (sequenceRunning) {
             app.sendBroadcast(
@@ -531,11 +630,133 @@ class PointerOverlayController(private val app: Context) {
         }
     }
 
+    private fun createSetEditor(rootView: PointerOverlayRootView): SetEditorCoordinator =
+        SetEditorCoordinator(app, scope, object : SetEditorHost {
+            override fun showSetContent(view: android.view.View?, showPointers: Boolean) {
+                if (root !== rootView) return
+                rootView.showSetContent(view, showPointers)
+                scope.launch { SequencePrefsStore.setSetPanelVisible(app, view != null) }
+            }
+
+            override fun setPointerEditTarget(itemId: String?) {
+                if (root !== rootView) return
+                val next = itemId?.let { PointerEditTarget.Item(it) } ?: PointerEditTarget.Global
+                if (editTarget.value == next) return
+                draggingIds.clear()
+                latestPoints = emptyList()
+                rootView.clearDisplayedPoints()
+                editTarget.value = next
+            }
+
+            override fun addPointer(isDrag: Boolean) {
+                if (isDrag) performAddDragPointer() else performAddPointer()
+            }
+
+            override fun clearPointers() {
+                val target = editTarget.value
+                launchWrite {
+                    pointerRepository.clear(target)
+                    toast(app.getString(R.string.toast_clear_all_done))
+                }
+            }
+
+            override fun openItemPresets(onBack: () -> Unit) {
+                presetSession++
+                rootView.openPresetPanel(importMode = true, onBack = {
+                    presetSession++
+                    onBack()
+                })
+            }
+
+            override fun renameItem(item: SetItem, onName: (String) -> Unit) {
+                rootView.showInputDialog(
+                    title = app.getString(R.string.set_rename_title),
+                    initialValue = item.name,
+                    hint = app.getString(R.string.set_name_hint),
+                    confirmText = app.getString(R.string.dialog_save),
+                    cancelText = app.getString(R.string.dialog_cancel),
+                    onSubmit = onName
+                )
+            }
+
+            override fun confirmDelete(item: SetItem, onConfirm: () -> Unit) {
+                rootView.showConfirmationDialog(
+                    title = app.getString(R.string.set_delete_title),
+                    message = app.getString(R.string.set_delete_message, item.name),
+                    confirmText = app.getString(R.string.dialog_delete),
+                    cancelText = app.getString(R.string.dialog_cancel),
+                    destructive = true,
+                    onConfirm = onConfirm
+                )
+            }
+
+            override fun toggleSetRun() { onSetRunToggle() }
+            override fun requestIme(show: Boolean) { setOverlayFocusableForIme(show) }
+        })
+
+    private fun onSetRunToggle() {
+        if (SetRuntime.active) {
+            sendSetCommand(SungyoonHelperService.ACTION_CANCEL_SET)
+            return
+        }
+        if (startingSet) return
+        if (!isServiceEnabled(app)) {
+            app.openAccessibilitySettings()
+            toast(app.getString(R.string.toast_accessibility_required))
+            return
+        }
+        startingSet = true
+        val sourceRoot = root
+        scope.launch {
+            try {
+                setEditor?.flushWrites()
+                flushWrites()
+                flushSharedOptions()
+                if (root !== sourceRoot || sourceRoot == null) return@launch
+                if (SetStore.itemsFlow(app).first().none { it.isExecutable }) {
+                    toast(app.getString(R.string.set_empty_message))
+                    return@launch
+                }
+                removeWindow()
+                sendSetCommand(SungyoonHelperService.ACTION_START_SET)
+            } finally {
+                startingSet = false
+            }
+        }
+    }
+
+    private fun sendSetCommand(action: String) {
+        app.sendBroadcast(Intent(action).setPackage(app.packageName))
+    }
+
+    private fun launchWrite(block: suspend () -> Unit) {
+        val job = scope.launch { block() }
+        pendingWrites += job
+        job.invokeOnCompletion { pendingWrites -= job }
+    }
+
+    private suspend fun flushWrites() {
+        while (pendingWrites.isNotEmpty()) pendingWrites.toList().joinAll()
+    }
+
+    private suspend fun flushSharedOptions() {
+        tapIntervalPersistJob?.cancel()
+        dragDurationPersistJob?.cancel()
+        randomRadiusPersistJob?.cancel()
+        TapIntervalStore.setTapIntervalMs(app, tapIntervalMs)
+        DragDurationStore.setDragDurationMs(app, dragDurationMs)
+        RandomTouchRadiusStore.setRandomTouchRadiusDp(app, randomTouchRadiusDp)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
     private fun startCollect() {
         val v = root ?: return
         collectJob?.cancel()
         collectJob = scope.launch {
-            PointsStore.pointsFlow(app).collectLatest { points ->
+            editTarget.flatMapLatest { target ->
+                pointerRepository.pointsFlow(target).map { target to it }
+            }.collectLatest { (target, points) ->
+                if (editTarget.value != target) return@collectLatest
                 latestPoints = points
                 val sorted = points.sortedBy { it.index }
                 val labelMap = HashMap<String, String>(sorted.size)
@@ -555,13 +776,9 @@ class PointerOverlayController(private val app: Context) {
                     },
                     onDragEnd = { id, endpoint, centerX, centerY ->
                         draggingIds.remove(draggingKey(id, endpoint))
-                        scope.launch {
+                        launchWrite {
                             val (sx, sy) = v.localCenterToScreen(centerX, centerY)
-                            if (endpoint == PointerOverlayRootView.Endpoint.START) {
-                                PointsStore.updatePointPosition(app, id, sx, sy)
-                            } else {
-                                PointsStore.updateDragEndPosition(app, id, sx, sy)
-                            }
+                            pointerRepository.move(target, id, endpoint, sx, sy)
                         }
                     }
                 )
@@ -580,6 +797,9 @@ class PointerOverlayController(private val app: Context) {
     private fun startPrefsCollect() {
         prefsJob?.cancel()
         prefsJob = scope.launch {
+            launch {
+                SetRuntime.state.collectLatest { state -> root?.setOtherExecutionBlocked(state.active) }
+            }
             launch {
                 SequencePrefsStore.sequenceRunningFlow(app).collectLatest { running ->
                     sequenceRunning = running
@@ -633,13 +853,13 @@ class PointerOverlayController(private val app: Context) {
         startCollect()
     }
 
-    private suspend fun ensurePointsLoaded() {
-        if (latestPoints.isEmpty()) {
-            latestPoints = PointsStore.pointsFlow(app).first()
-        }
+    private suspend fun ensurePointsLoaded(target: PointerEditTarget = editTarget.value): List<HighlightingPoint> {
+        val points = pointerRepository.get(target)
+        if (target == editTarget.value) latestPoints = points
+        return points
     }
 
-    private suspend fun loadPresetIntoPoints(preset: PresetEntry) {
+    private suspend fun loadPresetIntoPoints(preset: PresetEntry, target: PointerEditTarget) {
         val points = preset.points
             .sortedBy { it.index }
             .map { presetPoint ->
@@ -668,28 +888,28 @@ class PointerOverlayController(private val app: Context) {
                     )
                 }
             }
-        PointsStore.replaceAll(app, points)
+        pointerRepository.replace(target, points)
     }
 
-    private fun performAddPointer() {
+    private fun performAddPointer(target: PointerEditTarget = editTarget.value) {
         val v = root ?: return
 
         // 혹시 첫 프레임에 아직 측정 전이면 다음 프레임에 재시도
         if (v.width <= 0 || v.height <= 0) {
-            v.post { performAddPointer() }
+            v.post { if (root === v) performAddPointer(target) }
             return
         }
 
-        scope.launch {
-            ensurePointsLoaded()
+        launchWrite {
+            val points = ensurePointsLoaded(target)
 
-            val nextIndex = (latestPoints.maxOfOrNull { it.index } ?: -1) + 1
+            val nextIndex = (points.maxOfOrNull { it.index } ?: -1) + 1
             val localCx = v.width / 2f
             val localCy = v.height / 2f
             val (sx, sy) = v.localCenterToScreen(localCx, localCy)
 
-            PointsStore.addPoint(
-                context = app,
+            pointerRepository.add(
+                target = target,
                 point = HighlightingPoint(
                     x = sx,
                     y = sy,
@@ -703,17 +923,17 @@ class PointerOverlayController(private val app: Context) {
         }
     }
 
-    private fun performAddDragPointer() {
+    private fun performAddDragPointer(target: PointerEditTarget = editTarget.value) {
         val v = root ?: return
         if (v.width <= 0 || v.height <= 0) {
-            v.post { performAddDragPointer() }
+            v.post { if (root === v) performAddDragPointer(target) }
             return
         }
 
-        scope.launch {
-            ensurePointsLoaded()
+        launchWrite {
+            val points = ensurePointsLoaded(target)
 
-            val nextIndex = (latestPoints.maxOfOrNull { it.index } ?: -1) + 1
+            val nextIndex = (points.maxOfOrNull { it.index } ?: -1) + 1
             val localCx = v.width / 2f
             val localCy = v.height / 2f
             val endOffset = 120f * app.resources.displayMetrics.density
@@ -724,8 +944,8 @@ class PointerOverlayController(private val app: Context) {
             val (sx, sy) = v.localCenterToScreen(localCx, localCy)
             val (ex, ey) = v.localCenterToScreen(localEndX, localEndY)
 
-            PointsStore.addPoint(
-                context = app,
+            pointerRepository.add(
+                target = target,
                 point = HighlightingPoint(
                     x = sx,
                     y = sy,

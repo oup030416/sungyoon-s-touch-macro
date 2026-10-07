@@ -15,6 +15,14 @@ object SequencePrefsStore {
     private val KEY_POINTER_PANEL_VISIBLE = booleanPreferencesKey("pointer_panel_visible")
     private val KEY_RESERVATION_PANEL_VISIBLE = booleanPreferencesKey("reservation_panel_visible")
     private val KEY_PRESET_PANEL_VISIBLE = booleanPreferencesKey("preset_panel_visible")
+    private val KEY_SET_PANEL_VISIBLE = booleanPreferencesKey("set_panel_visible")
+
+    fun setPanelVisibleFlow(context: Context): Flow<Boolean> =
+        context.runtimeStore.data.map { it[KEY_SET_PANEL_VISIBLE] ?: false }.flowOn(Dispatchers.IO)
+
+    suspend fun setSetPanelVisible(context: Context, visible: Boolean) {
+        context.runtimeStore.edit { it[KEY_SET_PANEL_VISIBLE] = visible }
+    }
 
     private val KEY_REPEAT_ENABLED = booleanPreferencesKey("repeat_enabled")
     private val KEY_SEQUENCE_RUNNING = booleanPreferencesKey("sequence_running")

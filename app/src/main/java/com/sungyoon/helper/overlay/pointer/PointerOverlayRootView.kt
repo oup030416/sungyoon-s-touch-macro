@@ -9,18 +9,21 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.WindowInsets
 import android.view.inputmethod.EditorInfo
-import android.view.inputmethod.InputMethodManager
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.ScrollView
 import androidx.core.view.children
+import androidx.core.view.WindowInsetsCompat
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.PresetEntry
+import com.sungyoon.helper.overlay.OverlayImeController
+import com.sungyoon.helper.overlay.set.SetPanelSurface
 import com.sungyoon.helper.util.PointerSizeSpec
 import java.util.Locale
 import kotlin.math.atan2
@@ -47,8 +50,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private var pointerDrawRadiusPx: Float = dragHandleDrawRadiusPx
 
     private var panelVisible: Boolean = true
-    private val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+    private var keyboardInsetBottom = 0
     private var onRequestIme: ((Boolean) -> Unit)? = null
+    private val keyboard = OverlayImeController(this, ::requestIme)
 
     private var onPointerSizeChanged: ((Int) -> Unit)? = null
     private var suppressPointerSizeListener = false
@@ -60,6 +64,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     // ✅ 예약 버튼 콜백
     private var onReserveClick: (() -> Unit)? = null
     private var onPresetListClick: (() -> Unit)? = null
+    private var onSetClick: (() -> Unit)? = null
+    private var presetBack: (() -> Unit)? = null
+    private var otherExecutionBlocked = false
+    private val setContentHost = FrameLayout(context).apply { visibility = View.GONE }
 
     // syncPoints 재구성을 위한 캐시
     private var lastPoints: List<HighlightingPoint> = emptyList()
@@ -104,7 +112,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         PointerOverlayPresetPanelView(context, ::dp).apply {
             visibility = View.GONE
             alpha = 0f
-            setOnCloseClick { setPresetPanelVisible(false) }
+            setOnCloseClick { closePresetPanelAndReturn() }
         }
 
     private val modalHost = PointerOverlayModalHostView(
@@ -211,6 +219,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         // ✅ controlPanel 위에 예약 패널을 올려 "완전히 가리기"
         addView(reservationPanel)
         addView(presetPanel)
+        addView(setContentHost)
 
         addView(miniPanelToggleBtn)
         addView(modalHost)
@@ -244,6 +253,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         // ✅ 예약 버튼 클릭 → 컨트롤러에서 등록한 콜백 호출(기본 동작: 예약 패널 열기)
         controls.reserveBtn.setOnClickListener { onReserveClick?.invoke() }
         controls.presetListBtn.setOnClickListener { onPresetListClick?.invoke() }
+        controls.setBtn.setOnClickListener { onSetClick?.invoke() }
 
         // controlPanel 레이아웃이 바뀌면(회전/리사이즈) 예약 패널도 즉시 동기화
         controls.controlPanel.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
@@ -254,6 +264,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             if (presetPanel.visibility == View.VISIBLE) {
                 syncPresetPanelLayout()
             }
+            syncSetContentLayout()
         }
 
         setupSecondsIme(controls.intervalEdit)
@@ -277,14 +288,12 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             ) {
                 controls.intervalEdit.clearFocus()
                 hideKeyboard()
-                requestIme(false)
             }
             if (controls.dragDurationEdit.hasFocus() &&
                 !isTouchInsideViewRaw(ev.rawX, ev.rawY, controls.dragDurationEdit)
             ) {
                 controls.dragDurationEdit.clearFocus()
                 hideKeyboard()
-                requestIme(false)
             }
 
             val touchedPointerTarget = findPointerTargetAtRaw(ev.rawX, ev.rawY)
@@ -296,6 +305,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 isTouchInsideViewRaw(ev.rawX, ev.rawY, controlPanelScrollHost) ||
                         (reservationPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, reservationPanel)) ||
                         (presetPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, presetPanel)) ||
+                        (setContentHost.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, setContentHost)) ||
                         (modalHost.isShowing() && isTouchInsideViewRaw(ev.rawX, ev.rawY, modalHost))
 
             val touchedMini = (miniPanelToggleBtn.visibility == View.VISIBLE) &&
@@ -324,6 +334,52 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     fun setOnPresetListClick(block: () -> Unit) {
         onPresetListClick = block
+    }
+
+    fun setOnSetClick(block: () -> Unit) { onSetClick = block }
+
+    fun setOtherExecutionBlocked(blocked: Boolean) {
+        otherExecutionBlocked = blocked
+        controls.playToggleBtn.isEnabled = !blocked
+        controls.playToggleBtn.alpha = if (blocked) 0.45f else 1f
+        controls.hintText.text = context.getString(
+            if (blocked) R.string.set_blocked_message else R.string.pointer_control_hint
+        )
+        reservationPanel.setExecutionBlocked(blocked)
+    }
+
+    fun showSetContent(view: View?, showPointers: Boolean = false) {
+        clearSelection()
+        closeReservationPanel()
+        closePresetPanel()
+        setContentHost.removeAllViews()
+        if (view == null) {
+            setContentHost.visibility = View.GONE
+            controlPanelScrollHost.visibility = if (panelVisible) View.VISIBLE else View.GONE
+            pointerLayer.visibility = View.VISIBLE
+        } else {
+            if (!panelVisible) setControlPanelVisible(true)
+            controlPanelScrollHost.visibility = View.GONE
+            miniPanelToggleBtn.visibility = View.GONE
+            setContentHost.addView(view, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            setContentHost.visibility = View.VISIBLE
+            pointerLayer.visibility = if (showPointers) View.VISIBLE else View.INVISIBLE
+            setContentHost.bringToFront()
+            syncSetContentLayout()
+        }
+    }
+
+    private fun syncSetContentLayout() {
+        val src = controlPanelScrollHost.layoutParams as? FrameLayout.LayoutParams ?: return
+        val viewportHeight = resolvePanelViewportHeight()
+        (setContentHost.getChildAt(0) as? SetPanelSurface)?.setMaxViewportHeight(viewportHeight)
+        setContentHost.layoutParams = FrameLayout.LayoutParams(src.width, LayoutParams.WRAP_CONTENT).apply {
+            gravity = src.gravity
+            leftMargin = src.leftMargin
+            rightMargin = src.rightMargin
+            topMargin = src.topMargin
+            bottomMargin = src.bottomMargin
+        }
     }
 
     private var onControlPanelVisibleChanged: ((Boolean) -> Unit)? = null
@@ -361,8 +417,19 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         setReservationPanelVisible(false)
     }
 
-    fun openPresetPanel() {
+    fun openPresetPanel(importMode: Boolean = false, onBack: (() -> Unit)? = null) {
+        if (importMode) setContentHost.visibility = View.GONE
+        presetBack = onBack
+        presetPanel.setImportMode(importMode)
+        presetPanel.setBackText(context.getString(if (importMode) R.string.set_back else R.string.pointer_panel_close))
         setPresetPanelVisible(true)
+    }
+
+    fun closePresetPanelAndReturn() {
+        closePresetPanel()
+        val back = presetBack
+        presetBack = null
+        back?.invoke()
     }
 
     fun closePresetPanel() {
@@ -485,6 +552,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             syncPresetPanelLayout()
 
             presetPanel.visibility = View.VISIBLE
+            presetPanel.bringToFront()
             presetPanel.alpha = 0f
             presetPanel.scaleX = 0.98f
             presetPanel.scaleY = 0.98f
@@ -566,42 +634,26 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     }
 
     private fun setupSecondsIme(edit: EditText) {
-        edit.imeOptions = EditorInfo.IME_ACTION_DONE
+        edit.imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_FULLSCREEN
         edit.setSingleLine(true)
 
-        edit.setOnTouchListener { v, ev ->
+        edit.setOnTouchListener { _, ev ->
             if (ev.actionMasked == MotionEvent.ACTION_DOWN) {
-                requestIme(true)
-                v.post {
-                    if (!edit.isFocused) edit.requestFocus()
-                    edit.selectAll()
-                    imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
-                }
+                keyboard.show(edit)
             }
             false
         }
 
-        edit.setOnClickListener {
-            requestIme(true)
-            edit.post {
-                if (!edit.isFocused) edit.requestFocus()
-                edit.selectAll()
-                imm.showSoftInput(edit, InputMethodManager.SHOW_IMPLICIT)
-            }
-        }
+        edit.setOnClickListener { keyboard.show(edit) }
 
         edit.setOnFocusChangeListener { _, hasFocus ->
-            if (!hasFocus) {
-                hideKeyboard()
-                requestIme(false)
-            }
+            keyboard.onFocusChanged(edit, hasFocus)
         }
 
         edit.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 v.clearFocus()
                 hideKeyboard()
-                requestIme(false)
                 true
             } else false
         }
@@ -648,15 +700,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     }
 
     private fun hideKeyboard() {
-        try {
-            val token = controls.intervalEdit.windowToken
-                ?: controls.dragDurationEdit.windowToken
-                ?: windowToken
-            if (token != null) {
-                imm.hideSoftInputFromWindow(token, 0)
-            }
-        } catch (_: Throwable) {
-        }
+        keyboard.hide()
     }
 
     private fun isTouchInsideViewRaw(rawX: Float, rawY: Float, target: View): Boolean {
@@ -698,12 +742,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             if (controls.intervalEdit.hasFocus()) {
                 controls.intervalEdit.clearFocus()
                 hideKeyboard()
-                requestIme(false)
             }
             if (controls.dragDurationEdit.hasFocus()) {
                 controls.dragDurationEdit.clearFocus()
                 hideKeyboard()
-                requestIme(false)
             }
 
             controlPanelScrollHost.animate().cancel()
@@ -723,6 +765,25 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         // ✅ 추가: 터치 패널(컨트롤 패널) 표시 상태 저장용 콜백
         onControlPanelVisibleChanged?.invoke(panelVisible)
+    }
+
+    override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
+        val compatibleInsets = WindowInsetsCompat.toWindowInsetsCompat(insets, this)
+        val keyboardBottom = if (compatibleInsets.isVisible(WindowInsetsCompat.Type.ime())) {
+            compatibleInsets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+        } else 0
+        if (keyboardInsetBottom != keyboardBottom) {
+            keyboardInsetBottom = keyboardBottom
+            post {
+                if (isAttachedToWindow) {
+                    updateControlPanelViewport()
+                    syncReservationPanelLayout()
+                    syncPresetPanelLayout()
+                    syncSetContentLayout()
+                }
+            }
+        }
+        return super.onApplyWindowInsets(insets)
     }
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -919,6 +980,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         )
         controls.playToggleBtn.contentDescription =
             context.getString(if (running) R.string.pointer_play_desc_stop else R.string.pointer_play_desc_start)
+        if (otherExecutionBlocked) controls.playToggleBtn.contentDescription = context.getString(R.string.set_blocked_message)
     }
 
     fun setTapIntervalSeconds(seconds: Float) {
@@ -1012,6 +1074,13 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     fun getRandomTouchRadiusDpOrNull(): Int? {
         return randomTouchRadiusDp
+    }
+
+    fun clearDisplayedPoints() {
+        syncPoints(
+            points = emptyList(), labelProvider = { _, _ -> "" }, draggingIds = emptySet(),
+            onDragStart = { _, _ -> }, onDragMove = { _, _, _, _ -> }, onDragEnd = { _, _, _, _ -> }
+        )
     }
 
     fun syncPoints(
@@ -1733,6 +1802,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     }
 
     private fun findPointerTargetAtRaw(rawX: Float, rawY: Float): Pair<String, Endpoint>? {
+        if (pointerLayer.visibility != View.VISIBLE) return null
         for (i in pointerLayer.childCount - 1 downTo 0) {
             val v = pointerLayer.getChildAt(i) as? DraggablePointerView ?: continue
             if (v.visibility != View.VISIBLE || v.width <= 0 || v.height <= 0) continue
@@ -1767,6 +1837,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         updateControlPanelViewport()
         syncReservationPanelLayout()
         syncPresetPanelLayout()
+        syncSetContentLayout()
 
         val miniLp = FrameLayout.LayoutParams(dp(44), dp(44)).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1807,7 +1878,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val hostLp = controlPanelScrollHost.layoutParams as? FrameLayout.LayoutParams
         val topMargin = hostLp?.topMargin ?: dp(12)
         val bottomPadding = dp(12)
-        return (height - topMargin - bottomPadding).coerceAtLeast(dp(220))
+        return if (height > 0) {
+            (height - keyboardInsetBottom - topMargin - bottomPadding).coerceAtLeast(1)
+        } else dp(220)
     }
 
     private fun measureDesiredHeight(view: View, widthPx: Int): Int {

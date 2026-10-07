@@ -31,6 +31,7 @@ data class PointerOverlayControlsViews(
     val repeatToggleBtn: Button,
     val playToggleBtn: Button,
     val reserveBtn: Button,
+    val setBtn: Button,
     val touchAnimToggleBtn: Button,
     val collapseBtn: ImageButton,
     val closeBtn: ImageButton,
@@ -336,9 +337,7 @@ object PointerOverlayControlsFactory {
             text = context.getString(R.string.pointer_preset_list_button),
             fillColor = PLAY_STANDBY_FILL_COLOR
         ).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                leftMargin = dp(8)
-            }
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
         val clearAllBtn = actionButton(
@@ -353,7 +352,7 @@ object PointerOverlayControlsFactory {
             fillColor = Color.parseColor("#334CAF50")
         ).apply {
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             }
         }
@@ -365,11 +364,20 @@ object PointerOverlayControlsFactory {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
         }
 
+        val setBtn = actionButton(
+            text = context.getString(R.string.set_button),
+            fillColor = PLAY_STANDBY_FILL_COLOR
+        ).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(8)
+            }
+        }
+
         val touchAnimToggleBtn = actionButton(
             text = context.getString(R.string.pointer_touch_animation_on),
             fillColor = PLAY_STANDBY_FILL_COLOR
         ).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
             }
         }
@@ -415,6 +423,7 @@ object PointerOverlayControlsFactory {
         row2.addView(addBtn)
         row2.addView(addDragBtn)
         row3.addView(reserveBtn)
+        row3.addView(setBtn)
         row3.addView(playToggleBtn)
 
         actionsCol.addView(row1)
@@ -437,6 +446,7 @@ object PointerOverlayControlsFactory {
             repeatToggleBtn = repeatToggleBtn,
             playToggleBtn = playToggleBtn,
             reserveBtn = reserveBtn,
+            setBtn = setBtn,
             touchAnimToggleBtn = touchAnimToggleBtn,
             collapseBtn = collapseBtn,
             closeBtn = closeBtn,

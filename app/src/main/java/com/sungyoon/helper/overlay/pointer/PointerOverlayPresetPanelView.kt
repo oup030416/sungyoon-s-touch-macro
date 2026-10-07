@@ -35,6 +35,7 @@ class PointerOverlayPresetPanelView(
 
     private var presets: List<PresetEntry> = emptyList()
     private var selectedPresetId: String? = null
+    private var importMode = false
 
     private var onCloseClick: (() -> Unit)? = null
     private var onAddCurrentClick: (() -> Unit)? = null
@@ -51,6 +52,7 @@ class PointerOverlayPresetPanelView(
     private lateinit var bodyScrollView: ScrollView
     private lateinit var footerRowView: View
     private lateinit var addCurrentBtn: Button
+    private lateinit var closeBtn: Button
     private val compactScrollView = ScrollView(context).apply {
         isFillViewport = true
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
@@ -103,7 +105,7 @@ class PointerOverlayPresetPanelView(
             text = context.getString(R.string.preset_update),
             fillColor = Color.parseColor("#5B5CE6")
         ) {
-            selectedPresetId?.let { onUpdateClick?.invoke(it) }
+            if (!importMode) selectedPresetId?.let { onUpdateClick?.invoke(it) }
         }.apply {
             layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(10)
@@ -153,6 +155,15 @@ class PointerOverlayPresetPanelView(
         onRenameClick = block
     }
 
+    fun setImportMode(enabled: Boolean) {
+        importMode = enabled
+        syncActionButtons()
+    }
+
+    fun setBackText(text: String) {
+        closeBtn.text = text
+    }
+
     fun setPresets(entries: List<PresetEntry>) {
         presets = entries.sortedByDescending { it.createdAtEpochMs }
         if (selectedPresetId != null && presets.none { it.id == selectedPresetId }) {
@@ -188,7 +199,7 @@ class PointerOverlayPresetPanelView(
             layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
         }
 
-        val closeBtn = Button(context).apply {
+        closeBtn = Button(context).apply {
             text = context.getString(R.string.pointer_panel_close)
             isAllCaps = false
             setTextColor(Color.WHITE)
@@ -231,7 +242,7 @@ class PointerOverlayPresetPanelView(
                 text = context.getString(R.string.preset_add_current),
                 fillColor = Color.parseColor("#4A4A4A")
             ) {
-                onAddCurrentClick?.invoke()
+                if (!importMode) onAddCurrentClick?.invoke()
             }.apply {
                 layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
                     topMargin = dp(12)
@@ -339,13 +350,15 @@ class PointerOverlayPresetPanelView(
     }
 
     private fun syncActionButtons() {
-        val enabled = selectedPresetId != null
+        val enabled = presets.any { it.id == selectedPresetId }
         deleteBtn.isEnabled = enabled
         deleteBtn.alpha = if (enabled) 1f else 0.45f
-        updateBtn.isEnabled = enabled
-        updateBtn.alpha = if (enabled) 1f else 0.45f
+        updateBtn.isEnabled = enabled && !importMode
+        updateBtn.alpha = if (enabled && !importMode) 1f else 0.45f
         loadBtn.isEnabled = enabled
         loadBtn.alpha = if (enabled) 1f else 0.45f
+        addCurrentBtn.isEnabled = !importMode
+        addCurrentBtn.alpha = if (importMode) 0.45f else 1f
     }
 
     private fun actionButton(
