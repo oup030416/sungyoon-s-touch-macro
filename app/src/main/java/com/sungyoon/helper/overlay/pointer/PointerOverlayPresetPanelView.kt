@@ -13,6 +13,7 @@ import android.widget.Button
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import com.sungyoon.helper.ui.DirectScrollView
 import android.widget.TextView
 import android.view.ViewGroup
 import com.sungyoon.helper.R
@@ -53,7 +54,7 @@ class PointerOverlayPresetPanelView(
     private lateinit var footerRowView: View
     private lateinit var addCurrentBtn: Button
     private lateinit var closeBtn: Button
-    private val compactScrollView = ScrollView(context).apply {
+    private val compactScrollView = DirectScrollView(context).apply {
         isFillViewport = true
         layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT)
     }
@@ -223,7 +224,7 @@ class PointerOverlayPresetPanelView(
     }
 
     private fun buildBodyScrollView(): ScrollView {
-        return ScrollView(context).apply {
+        return DirectScrollView(context).apply {
             isFillViewport = true
             layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply {
                 topMargin = dp(10)

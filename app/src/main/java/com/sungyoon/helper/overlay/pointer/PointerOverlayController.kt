@@ -35,11 +35,15 @@ import com.sungyoon.helper.overlay.set.SetEditorCoordinator
 import com.sungyoon.helper.overlay.set.SetEditorHost
 import com.sungyoon.helper.overlay.configureFullScreenOverlayBounds
 import com.sungyoon.helper.service.set.SetRuntime
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
@@ -96,20 +100,31 @@ class PointerOverlayController(private val app: Context) {
     private val minRandomRadiusDp = 0
     private val maxRandomRadiusDp = 20
 
-    fun isShowing(): Boolean = added
+    fun isShowing(): Boolean = added || showRequestJob?.isActive == true
 
     fun show(forceOpenControlPanel: Boolean = false) {
-        if (added || closing) return
-        if (SetRuntime.active && !SetRuntime.state.value.paused) {
-            if (showRequestJob?.isActive == true) return
-            sendSetCommand(SungyoonHelperService.ACTION_PAUSE_SET)
-            showRequestJob = scope.launch {
-                SetRuntime.state.first { !it.active || it.paused }
-                showRequestJob = null
-                show(forceOpenControlPanel)
+        if (added || closing || showRequestJob?.isActive == true) return
+        // Prepare one complete screen before attaching its window; no default panel is rendered first.
+        val request = scope.launch(start = CoroutineStart.LAZY) {
+            try {
+                if (SetRuntime.active && !SetRuntime.state.value.paused) {
+                    sendSetCommand(SungyoonHelperService.ACTION_PAUSE_SET)
+                    SetRuntime.state.first { !it.active || it.paused }
+                }
+                showPreparedWindow(forceOpenControlPanel)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                toast(app.getString(R.string.toast_overlay_failed, failure.javaClass.simpleName))
+            } finally {
+                if (showRequestJob === currentCoroutineContext()[Job]) showRequestJob = null
             }
-            return
         }
+        showRequestJob = request
+        request.start()
+    }
+
+    private suspend fun showPreparedWindow(forceOpenControlPanel: Boolean) {
         try {
             app.sendBroadcast(
                 Intent(SungyoonHelperService.ACTION_PAUSE_RESERVATION).apply {
@@ -127,6 +142,21 @@ class PointerOverlayController(private val app: Context) {
             toast(app.getString(R.string.toast_overlay_required))
             return
         }
+
+        val savedInterval = TapIntervalStore.tapIntervalMsFlow(app).first().coerceAtLeast(100L)
+        val savedDragDuration = clampDragDurationMs(DragDurationStore.dragDurationMsFlow(app).first())
+        val savedRadius = clampRandomRadiusDp(RandomTouchRadiusStore.randomTouchRadiusDpFlow(app).first())
+        val savedSequenceRunning = SequencePrefsStore.sequenceRunningFlow(app).first()
+        val savedRepeat = SequencePrefsStore.repeatEnabledFlow(app).first()
+        val savedAnimation = SequencePrefsStore.touchAnimationEnabledFlow(app).first()
+        val panelVisiblePref = SequencePrefsStore.pointerPanelVisibleFlow(app).first()
+        val reservationVisiblePref = SequencePrefsStore.reservationPanelVisibleFlow(app).first()
+        val presetVisiblePref = SequencePrefsStore.presetPanelVisibleFlow(app).first()
+        val setVisiblePref = SequencePrefsStore.setPanelVisibleFlow(app).first()
+        val initialItems = if (SetRuntime.active || setVisiblePref) SetStore.itemsFlow(app).first() else emptyList()
+        val initialPresets = if (presetVisiblePref) {
+            PresetStore.presetsFlow(app).first().sortedByDescending { it.createdAtEpochMs }
+        } else emptyList()
 
         val v = PointerOverlayRootView(app).apply {
 
@@ -411,20 +441,51 @@ class PointerOverlayController(private val app: Context) {
         }
         configureFullScreenOverlayBounds(v, lp)
 
+        // Configure values and the restored panel while the view is still detached.
+        tapIntervalMs = savedInterval
+        dragDurationMs = savedDragDuration
+        randomTouchRadiusDp = savedRadius
+        sequenceRunning = savedSequenceRunning
+        repeatEnabled = savedRepeat
+        touchAnimEnabled = savedAnimation
+        latestPresets = initialPresets
+        v.setTapIntervalSeconds(savedInterval / 1000f)
+        v.setDragDurationSeconds(savedDragDuration / 1000f)
+        v.setRandomTouchRadiusDp(savedRadius)
+        v.setSequenceRunning(savedSequenceRunning)
+        v.setRepeatEnabled(savedRepeat)
+        v.setTouchAnimationEnabled(savedAnimation)
+        v.setPresetEntries(initialPresets)
+        if (!SetRuntime.active && !setVisiblePref && !presetVisiblePref && reservationVisiblePref) {
+            loadReservationPrefsInto(v)
+        }
+        currentCoroutineContext().ensureActive()
+
         try {
-            wm.addView(v, lp)
             root = v
-            added = true
-            overlayLp = lp
             managerPausedSet = SetRuntime.active
             editTarget.value = PointerEditTarget.Global
-            setEditor = createSetEditor(v)
+            setEditor = createSetEditor(v, initialItems)
             v.setOtherExecutionBlocked(SetRuntime.active)
-        } catch (t: Throwable) {
+            val controlVisible = forceOpenControlPanel || SetRuntime.active || setVisiblePref ||
+                presetVisiblePref || reservationVisiblePref || panelVisiblePref
+            v.setControlPanelVisibleFromController(controlVisible)
+            when {
+                SetRuntime.active || setVisiblePref -> setEditor?.open()
+                presetVisiblePref -> v.openPresetPanel()
+                reservationVisiblePref -> v.openReservationPanel()
+            }
+            wm.addView(v, lp)
+            added = true
+            overlayLp = lp
+        } catch (failure: Exception) {
+            setEditor?.dispose()
+            setEditor = null
             root = null
             added = false
             overlayLp = null
-            toast(app.getString(R.string.toast_overlay_failed, t.javaClass.simpleName))
+            managerPausedSet = false
+            toast(app.getString(R.string.toast_overlay_failed, failure.javaClass.simpleName))
             return
         }
 
@@ -456,61 +517,10 @@ class PointerOverlayController(private val app: Context) {
             }
             startCollectIfNeeded()
         }
-
-        scope.launch {
-            val savedInterval = TapIntervalStore.tapIntervalMsFlow(app).first().coerceAtLeast(100L)
-            val savedDragDuration = clampDragDurationMs(DragDurationStore.dragDurationMsFlow(app).first())
-            val savedRadius = clampRandomRadiusDp(RandomTouchRadiusStore.randomTouchRadiusDpFlow(app).first())
-            val savedSequenceRunning = SequencePrefsStore.sequenceRunningFlow(app).first()
-            val savedRepeat = SequencePrefsStore.repeatEnabledFlow(app).first()
-            val savedAnimation = SequencePrefsStore.touchAnimationEnabledFlow(app).first()
-            val panelVisiblePref = SequencePrefsStore.pointerPanelVisibleFlow(app).first()
-            val reservationVisiblePref = SequencePrefsStore.reservationPanelVisibleFlow(app).first()
-            val presetVisiblePref = SequencePrefsStore.presetPanelVisibleFlow(app).first()
-            val setVisiblePref = SequencePrefsStore.setPanelVisibleFlow(app).first()
-            // A delayed load must never initialize a newer window or editing session.
-            if (root !== v) return@launch
-            tapIntervalMs = savedInterval
-            dragDurationMs = savedDragDuration
-            randomTouchRadiusDp = savedRadius
-            sequenceRunning = savedSequenceRunning
-            repeatEnabled = savedRepeat
-            touchAnimEnabled = savedAnimation
-            v.setTapIntervalSeconds(savedInterval / 1000f)
-            v.setDragDurationSeconds(savedDragDuration / 1000f)
-            v.setRandomTouchRadiusDp(savedRadius)
-            v.setSequenceRunning(savedSequenceRunning)
-            v.setRepeatEnabled(savedRepeat)
-            v.setTouchAnimationEnabled(savedAnimation)
-            v.post {
-                if (root !== v) return@post
-
-                val effectivePanelVisible = if (forceOpenControlPanel) {
-                    true
-                } else if (reservationVisiblePref || presetVisiblePref || setVisiblePref || SetRuntime.active) {
-                    true
-                } else {
-                    panelVisiblePref
-                }
-                v.setControlPanelVisibleFromController(effectivePanelVisible)
-
-                if (SetRuntime.active || setVisiblePref) {
-                    setEditor?.open()
-                } else if (presetVisiblePref) {
-                    v.openPresetPanel()
-                    v.closeReservationPanel()
-                } else if (reservationVisiblePref) {
-                    v.openReservationPanel()
-                    scope.launch { loadReservationPrefsInto(v) } // ✅ 예약값 복원 주입
-                } else {
-                    v.closeReservationPanel()
-                    v.closePresetPanel()
-                }
-            }
-        }
     }
 
     fun hide(resumeSet: Boolean = false) {
+        val wasOpening = showRequestJob?.isActive == true
         showRequestJob?.cancel()
         showRequestJob = null
         if (!resumeSet) {
@@ -545,6 +555,9 @@ class PointerOverlayController(private val app: Context) {
             }
         } else {
             removeWindow()
+            if (resumeSet && wasOpening && SetRuntime.active) {
+                sendSetCommand(SungyoonHelperService.ACTION_RESUME_SET)
+            }
         }
     }
 
@@ -639,7 +652,7 @@ class PointerOverlayController(private val app: Context) {
         }
     }
 
-    private fun createSetEditor(rootView: PointerOverlayRootView): SetEditorCoordinator =
+    private fun createSetEditor(rootView: PointerOverlayRootView, initialItems: List<SetItem>): SetEditorCoordinator =
         SetEditorCoordinator(app, scope, object : SetEditorHost {
             override fun showSetContent(view: android.view.View?, showPointers: Boolean) {
                 if (root !== rootView) return
@@ -712,7 +725,7 @@ class PointerOverlayController(private val app: Context) {
                 sendSetCommand(SungyoonHelperService.ACTION_CANCEL_SET)
             }
             override fun requestIme(show: Boolean) { setOverlayFocusableForIme(show) }
-        })
+        }, initialItems)
 
     private fun onSetStartOrResume() {
         if (SetRuntime.active) {

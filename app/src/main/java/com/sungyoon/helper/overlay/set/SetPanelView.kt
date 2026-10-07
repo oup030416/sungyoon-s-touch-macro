@@ -12,6 +12,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
+import com.sungyoon.helper.ui.DirectScrollView
 import android.widget.TextView
 import com.sungyoon.helper.R
 import com.sungyoon.helper.overlay.pointer.PointerOverlayControlsFactory
@@ -69,7 +70,7 @@ open class SetPanelView(
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
     }
-    protected val bodyScroll = ScrollView(context).apply {
+    protected val bodyScroll = DirectScrollView(context).apply {
         isFillViewport = false
         addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
@@ -94,7 +95,7 @@ open class SetPanelView(
             LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { leftMargin = context.setDp(8) })
     }
     private val compactBody = LinearLayout(context).apply { orientation = VERTICAL }
-    private val compactScroll = ScrollView(context).apply {
+    private val compactScroll = DirectScrollView(context).apply {
         addView(compactBody, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
     private var maxViewportHeight = 0
@@ -191,6 +192,11 @@ open class SetPanelView(
     }
 
     protected fun activeScrollView(): ScrollView = if (compact) compactScroll else bodyScroll
+
+    protected fun clearScrollContentMinimumHeights() {
+        if (body.minimumHeight != 0) body.minimumHeight = 0
+        if (compactBody.minimumHeight != 0) compactBody.minimumHeight = 0
+    }
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         super.onLayout(changed, left, top, right, bottom)

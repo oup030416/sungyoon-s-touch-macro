@@ -8,6 +8,8 @@ import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -61,6 +63,30 @@ class SetListPanelView(
     private var entries = emptyList<SetItem>()
     private var selectedId: String? = null
     private var runtime = SetRunState()
+    private var pendingRevealItemId: String? = null
+    private val revealCurrentItem = ViewTreeObserver.OnPreDrawListener {
+        val id = pendingRevealItemId ?: return@OnPreDrawListener true
+        val row = rowViews[id]
+        if (row == null) {
+            pendingRevealItemId = null
+            return@OnPreDrawListener true
+        }
+        val scroll = activeScrollView()
+        if (isLayoutRequested || scroll.isLayoutRequested || scroll.height <= 0) return@OnPreDrawListener false
+        val content = scroll.getChildAt(0) as? ViewGroup ?: return@OnPreDrawListener true
+        val bounds = Rect(0, 0, row.width, row.height)
+        content.offsetDescendantRectToMyCoords(row, bounds)
+        val target = (bounds.top - scroll.paddingTop).coerceAtLeast(0)
+        // Reserve trailing space so even the last item can sit at the viewport's top.
+        val requiredHeight = target + scroll.height - scroll.paddingTop - scroll.paddingBottom
+        if (content.minimumHeight < requiredHeight) {
+            content.minimumHeight = requiredHeight
+            return@OnPreDrawListener false
+        }
+        scroll.scrollTo(0, target)
+        pendingRevealItemId = null
+        true
+    }
     private var pendingEntries: List<SetItem>? = null
     private val cancelButton = context.setAction(context.getString(R.string.set_cancel), onClick = onCancel)
     private val startButton = context.setAction(context.getString(R.string.set_start), Color.parseColor("#2E7D32"), onStartOrResume)
@@ -189,6 +215,10 @@ class SetListPanelView(
 
     fun renderRuntime(state: SetRunState) {
         runtime = state
+        if (!state.active) {
+            pendingRevealItemId = null
+            clearScrollContentMinimumHeights()
+        }
         val percentage = SetProgress.percent(state)
         val seconds = (if (state.active) state.elapsedMs else 0L).coerceAtLeast(0L) / 1000L
         elapsedTime.text = context.getString(R.string.set_elapsed_time, seconds / 60L, seconds % 60L)
@@ -200,7 +230,20 @@ class SetListPanelView(
     fun savedScrollPosition(): Int = bodyScrollPosition()
     fun restoreSavedScrollPosition(scroll: Int) = restoreBodyScroll(scroll)
 
+    fun scrollCurrentItemToTop() {
+        pendingRevealItemId = runtime.currentItem?.id?.takeIf { runtime.active }
+        if (pendingRevealItemId != null) invalidate()
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        viewTreeObserver.addOnPreDrawListener(revealCurrentItem)
+    }
+
     override fun onDetachedFromWindow() {
+        if (viewTreeObserver.isAlive) viewTreeObserver.removeOnPreDrawListener(revealCurrentItem)
+        pendingRevealItemId = null
+        clearScrollContentMinimumHeights()
         finishDrag(commit = false)
         super.onDetachedFromWindow()
     }

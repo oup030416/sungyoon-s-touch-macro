@@ -37,7 +37,8 @@ interface SetEditorHost {
 class SetEditorCoordinator(
     private val context: Context,
     scope: CoroutineScope,
-    private val host: SetEditorHost
+    private val host: SetEditorHost,
+    initialItems: List<SetItem> = emptyList()
 ) {
 
     private sealed interface Screen {
@@ -57,7 +58,7 @@ class SetEditorCoordinator(
     private val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val writes = mutableSetOf<Job>()
     private var disposed = false
-    private var items = emptyList<SetItem>()
+    private var items = initialItems
     private var selectedId: String? = null
     private var screen: Screen = Screen.ListScreen
     private var visibleView: SetPanelView? = null
@@ -100,6 +101,7 @@ class SetEditorCoordinator(
         if (disposed) return
         isOpen = true
         showList()
+        listPanel.scrollCurrentItemToTop()
     }
 
     fun close() {

@@ -16,7 +16,7 @@ import android.widget.Button
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
+import com.sungyoon.helper.ui.DirectScrollView
 import android.widget.TextView
 import androidx.core.content.ContextCompat
 import com.sungyoon.helper.core.permissions.isOverlayGranted
@@ -69,9 +69,9 @@ class MainScreenView(context: Context) : FrameLayout(context) {
             ViewGroup.LayoutParams.MATCH_PARENT
         )
 
-        val scroll = ScrollView(context).apply {
+        val scroll = DirectScrollView(context).apply {
             isFillViewport = true
-            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+            overScrollMode = View.OVER_SCROLL_NEVER
             layoutParams = FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT

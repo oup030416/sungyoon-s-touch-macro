@@ -15,7 +15,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.ScrollView
+import com.sungyoon.helper.ui.DirectScrollView
 import androidx.core.graphics.Insets
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.children
@@ -86,9 +86,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         dp = ::dp
     )
 
-    private val controlPanelScrollHost = ScrollView(context).apply {
+    private val controlPanelScrollHost = DirectScrollView(context).apply {
         isFillViewport = false
-        overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        overScrollMode = View.OVER_SCROLL_NEVER
         isVerticalScrollBarEnabled = false
         layoutParams = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -551,6 +551,17 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val wasVisible = reservationPanel.visibility == View.VISIBLE
         if (wasVisible == visible) return
 
+        if (!isAttachedToWindow) {
+            if (visible) {
+                if (!panelVisible) setControlPanelVisible(true)
+                closePresetPanel()
+                syncReservationPanelLayout()
+            }
+            restoreVisibility(reservationPanel, visible)
+            onReservationPanelVisibleChanged?.invoke(visible)
+            return
+        }
+
         if (visible) {
             // 패널이 숨김 상태면 먼저 보이게
             if (!panelVisible) setControlPanelVisible(true)
@@ -588,6 +599,18 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private fun setPresetPanelVisible(visible: Boolean) {
         val wasVisible = presetPanel.visibility == View.VISIBLE
         if (wasVisible == visible) return
+
+        if (!isAttachedToWindow) {
+            if (visible) {
+                if (!panelVisible) setControlPanelVisible(true)
+                closeReservationPanel()
+                syncPresetPanelLayout()
+                presetPanel.bringToFront()
+            }
+            restoreVisibility(presetPanel, visible)
+            onPresetPanelVisibleChanged?.invoke(visible)
+            return
+        }
 
         if (visible) {
             if (!panelVisible) setControlPanelVisible(true)
@@ -759,6 +782,18 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         if (panelVisible == visible) return
         panelVisible = visible
 
+        if (!isAttachedToWindow) {
+            if (!visible) {
+                closeReservationPanel()
+                closePresetPanel()
+            }
+            restoreVisibility(controlPanelScrollHost, visible)
+            restoreVisibility(miniPanelToggleBtn, !visible)
+            onControlPanelVisibleChanged?.invoke(visible)
+            updateMoveStickPosition()
+            return
+        }
+
         if (visible) {
             controlPanelScrollHost.visibility = View.VISIBLE
             controlPanelScrollHost.alpha = 0f
@@ -809,6 +844,15 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         // ✅ 추가: 터치 패널(컨트롤 패널) 표시 상태 저장용 콜백
         onControlPanelVisibleChanged?.invoke(panelVisible)
         updateMoveStickPosition()
+    }
+
+    /** Initial restoration must finish before the first frame, without a transition from the default panel. */
+    private fun restoreVisibility(view: View, visible: Boolean) {
+        view.animate().cancel()
+        view.visibility = if (visible) View.VISIBLE else View.GONE
+        view.alpha = if (visible) 1f else 0f
+        view.scaleX = 1f
+        view.scaleY = 1f
     }
 
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
