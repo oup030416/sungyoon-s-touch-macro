@@ -70,6 +70,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private var presetBack: (() -> Unit)? = null
     private var otherExecutionBlocked = false
     private val setContentHost = FrameLayout(context).apply { visibility = View.GONE }
+    private var setContentMinimized = false
 
     // syncPoints 재구성을 위한 캐시
     private var lastPoints: List<HighlightingPoint> = emptyList()
@@ -226,7 +227,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         addView(miniPanelToggleBtn)
         addView(modalHost)
         miniPanelToggleBtn.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
-            if (!panelVisible) updateMoveStickPosition()
+            if (!panelVisible || setContentMinimized) updateMoveStickPosition()
         }
 
         // move stick / delete button
@@ -253,7 +254,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         setTouchAnimationEnabled(true)
 
         controls.collapseBtn.setOnClickListener { setControlPanelVisible(false) }
-        miniPanelToggleBtn.setOnClickListener { setControlPanelVisible(true) }
+        miniPanelToggleBtn.setOnClickListener {
+            if (setContentMinimized) restoreSetContent() else setControlPanelVisible(true)
+        }
 
         // ✅ 예약 버튼 클릭 → 컨트롤러에서 등록한 콜백 호출(기본 동작: 예약 패널 열기)
         controls.reserveBtn.setOnClickListener { onReserveClick?.invoke() }
@@ -357,10 +360,14 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         clearSelection()
         closeReservationPanel()
         closePresetPanel()
+        setContentMinimized = false
+        miniPanelToggleBtn.animate().cancel()
         setContentHost.removeAllViews()
         if (view == null) {
             setContentHost.visibility = View.GONE
             controlPanelScrollHost.visibility = if (panelVisible) View.VISIBLE else View.GONE
+            miniPanelToggleBtn.visibility = if (panelVisible) View.GONE else View.VISIBLE
+            miniPanelToggleBtn.alpha = if (panelVisible) 0f else 1f
             pointerLayer.visibility = View.VISIBLE
         } else {
             if (!panelVisible) setControlPanelVisible(true)
@@ -372,6 +379,31 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             setContentHost.bringToFront()
             syncSetContentLayout()
         }
+    }
+
+    fun minimizeSetContent() {
+        if (setContentHost.childCount == 0 || setContentHost.visibility != View.VISIBLE) return
+        // Keep the mounted editor and scoped pointer target intact while the panel is hidden.
+        setContentMinimized = true
+        setContentHost.visibility = View.GONE
+        miniPanelToggleBtn.animate().cancel()
+        miniPanelToggleBtn.visibility = View.VISIBLE
+        miniPanelToggleBtn.alpha = 1f
+        miniPanelToggleBtn.bringToFront()
+        updateMoveStickPosition()
+    }
+
+    private fun restoreSetContent() {
+        if (!setContentMinimized || setContentHost.childCount == 0) return
+        setContentMinimized = false
+        miniPanelToggleBtn.animate().cancel()
+        miniPanelToggleBtn.visibility = View.GONE
+        miniPanelToggleBtn.alpha = 0f
+        controlPanelScrollHost.visibility = View.GONE
+        setContentHost.visibility = View.VISIBLE
+        setContentHost.bringToFront()
+        syncSetContentLayout()
+        updateMoveStickPosition()
     }
 
     private fun syncSetContentLayout() {
@@ -1710,7 +1742,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             pointerEdge + moveStickDesiredLenPx
         } else pointerEdge - moveStickDesiredLenPx - moveStickHandleSizePx
         var handleTop = desiredHandleTop.coerceIn(minHandleTop, maxHandleTop)
-        if (!panelVisible && miniPanelToggleBtn.visibility == View.VISIBLE &&
+        if ((!panelVisible || setContentMinimized) && miniPanelToggleBtn.visibility == View.VISIBLE &&
             miniPanelToggleBtn.width > 0 && miniPanelToggleBtn.height > 0) {
             miniPanelToggleBtn.getLocationOnScreen(tmpLoc)
             val (toggleLeft, toggleTop) = screenCenterToLocal(tmpLoc[0].toFloat(), tmpLoc[1].toFloat())

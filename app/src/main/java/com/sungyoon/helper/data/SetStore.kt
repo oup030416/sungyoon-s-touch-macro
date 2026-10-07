@@ -104,13 +104,14 @@ object SetStore {
 
     suspend fun updateReservation(context: Context, id: String, config: ReservationConfig): Boolean =
         updateItem(context, id) { item ->
-            (item as? SetItem.Reserved)?.copy(reservation = config.normalized())
+            val normalized = config.normalized()
+            (item as? SetItem.Reserved)?.takeIf { it.reservation != normalized }?.copy(reservation = normalized)
         }
 
     suspend fun updateWait(context: Context, id: String, durationMs: Long): Boolean {
         if (!SetItem.Wait.isValidDuration(durationMs)) return false
         return updateItem(context, id) { item ->
-            (item as? SetItem.Wait)?.copy(durationMs = durationMs)
+            (item as? SetItem.Wait)?.takeIf { it.durationMs != durationMs }?.copy(durationMs = durationMs)
         }
     }
 

@@ -27,6 +27,7 @@ internal class SetPointerPanelView(
     context: Context,
     item: SetItem,
     onBack: () -> Unit,
+    onMinimize: () -> Unit,
     onClear: () -> Unit,
     onAddTap: () -> Unit,
     onAddDrag: () -> Unit,
@@ -35,6 +36,7 @@ internal class SetPointerPanelView(
     private val summary = context.setText("", 13.5f)
 
     init {
+        addMinimizeAction(onMinimize)
         body.addView(context.setText(item.name, 16f, true))
         body.addView(context.setText(context.getString(R.string.set_pointer_scope_hint), 12f).apply {
             setTextColor(Color.parseColor("#B8B8B8"))
@@ -43,15 +45,16 @@ internal class SetPointerPanelView(
         body.addView(summary)
         val options = listOf(
             context.getString(R.string.pointer_clear_all) to onClear,
+            context.getString(R.string.preset_load) to onPresets,
             context.getString(R.string.pointer_add) to onAddTap,
-            context.getString(R.string.pointer_add_drag) to onAddDrag,
-            context.getString(R.string.preset_load) to onPresets
+            context.getString(R.string.pointer_add_drag) to onAddDrag
         )
-        options.chunked(2).forEach { buttons ->
+        options.chunked(2).forEachIndexed { rowIndex, buttons ->
             body.addView(LinearLayout(context).apply {
                 orientation = HORIZONTAL
                 buttons.forEachIndexed { index, (label, action) ->
-                    addView(context.setAction(label, Color.parseColor("#4A4A4A"), action),
+                    val color = if (rowIndex == 0 && index == 0) "#8E2430" else "#4A4A4A"
+                    addView(context.setAction(label, Color.parseColor(color), action),
                         LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = if (index == 0) 0 else context.setDp(8) })
                 }
             }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(10) })
@@ -82,12 +85,9 @@ internal class SetReservationPanelView(
         body.addView(name)
         body.addView(progress, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(8) })
         body.addView(inputs, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(12) })
-        body.addView(context.setText(context.getString(R.string.set_auto_saved), 12f).apply {
-            gravity = Gravity.CENTER
-            setTextColor(Color.parseColor("#B8B8B8"))
-            setPadding(0, context.setDp(12), 0, 0)
-        })
+        addSaveStatus(centered = true)
         inputs.setValues(item.reservation)
+        inputs.setOnEdited { clearSaveStatus() }
         inputs.setOnChanged(onValue)
         inputs.setOnRequestIme(requestIme)
     }
@@ -161,15 +161,13 @@ internal class SetWaitPanelView(
             setTextColor(Color.parseColor("#B8B8B8"))
             setPadding(0, context.setDp(8), 0, 0)
         })
-        body.addView(context.setText(context.getString(R.string.set_auto_saved), 12f).apply {
-            setTextColor(Color.parseColor("#B8B8B8"))
-            setPadding(0, context.setDp(12), 0, 0)
-        })
+        addSaveStatus()
         edit.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
                 if (settingValue) return
+                clearSaveStatus()
                 val value = parseDuration(s?.toString()) ?: return
                 edit.error = null
                 if (value != lastSentValue) {

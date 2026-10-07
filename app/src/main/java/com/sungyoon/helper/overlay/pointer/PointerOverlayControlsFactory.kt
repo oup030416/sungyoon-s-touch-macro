@@ -49,6 +49,19 @@ object PointerOverlayControlsFactory {
 
     private val PLAY_STANDBY_FILL_COLOR = Color.parseColor("#664CAF50")
 
+    fun createCollapseButton(context: Context, dp: (Int) -> Int): ImageButton = ImageButton(context).apply {
+        setImageResource(android.R.drawable.arrow_up_float)
+        contentDescription = context.getString(R.string.pointer_control_hide)
+        background = PointerOverlayDrawables.circleRippleBg(
+            baseColor = Color.parseColor("#22FFFFFF"),
+            rippleColor = Color.parseColor("#33FFFFFF")
+        )
+        setPadding(dp(9), dp(9), dp(9), dp(9))
+        layoutParams = LinearLayout.LayoutParams(dp(38), dp(38)).apply { rightMargin = dp(8) }
+        scaleType = ImageView.ScaleType.CENTER
+        imageTintList = ColorStateList.valueOf(Color.WHITE)
+    }
+
     fun create(
         context: Context,
         dp: (Int) -> Int
@@ -106,20 +119,7 @@ object PointerOverlayControlsFactory {
             setPadding(0, dp(3), 0, 0)
         }
 
-        val collapseBtn = ImageButton(context).apply {
-            setImageResource(android.R.drawable.arrow_up_float)
-            contentDescription = context.getString(R.string.pointer_control_hide)
-            background = PointerOverlayDrawables.circleRippleBg(
-                baseColor = Color.parseColor("#22FFFFFF"),
-                rippleColor = Color.parseColor("#33FFFFFF")
-            )
-            setPadding(dp(9), dp(9), dp(9), dp(9))
-            layoutParams = LinearLayout.LayoutParams(dp(38), dp(38)).apply {
-                rightMargin = dp(8)
-            }
-            scaleType = ImageView.ScaleType.CENTER
-            imageTintList = ColorStateList.valueOf(Color.WHITE)
-        }
+        val collapseBtn = createCollapseButton(context, dp)
 
         val closeBtn = ImageButton(context).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)

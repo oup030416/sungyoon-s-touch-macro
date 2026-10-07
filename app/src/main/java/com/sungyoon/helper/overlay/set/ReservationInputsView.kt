@@ -26,6 +26,7 @@ class ReservationInputsView(context: Context) : LinearLayout(context) {
     private var updating = false
     private var locked = false
     private var onChanged: ((ReservationConfig) -> Unit)? = null
+    private var onEdited: (() -> Unit)? = null
     private var requestIme: ((Boolean) -> Unit)? = null
     private val keyboard = OverlayImeController(this) { requestIme?.invoke(it) }
     private val resetButton = context.setAction(context.getString(R.string.reservation_reset_inputs), Color.parseColor("#2A2A2A")) {
@@ -54,7 +55,10 @@ class ReservationInputsView(context: Context) : LinearLayout(context) {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
                 override fun afterTextChanged(s: Editable?) {
-                    if (!updating && !locked) readValues()?.let { onChanged?.invoke(it) }
+                    if (!updating && !locked) {
+                        onEdited?.invoke()
+                        readValues()?.let { onChanged?.invoke(it) }
+                    }
                 }
             })
             edit.setOnTouchListener { _, event ->
@@ -85,6 +89,8 @@ class ReservationInputsView(context: Context) : LinearLayout(context) {
     }
 
     fun setOnChanged(block: (ReservationConfig) -> Unit) { onChanged = block }
+
+    fun setOnEdited(block: () -> Unit) { onEdited = block }
 
     fun setOnRequestIme(block: (Boolean) -> Unit) { requestIme = block }
 

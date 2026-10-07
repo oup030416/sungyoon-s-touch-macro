@@ -21,6 +21,7 @@ import kotlinx.coroutines.launch
 
 interface SetEditorHost {
     fun showSetContent(view: View?, showPointers: Boolean = false)
+    fun minimizeSetContent()
     fun setPointerEditTarget(itemId: String?)
     fun addPointer(isDrag: Boolean)
     fun clearPointers()
@@ -183,6 +184,7 @@ class SetEditorCoordinator(
         val item = findItem(id)?.takeUnless { it is SetItem.Wait } ?: return showList()
         screen = Screen.Pointers(id)
         display(SetPointerPanelView(context, item, { showMenu(id) },
+            onMinimize = host::minimizeSetContent,
             onClear = host::clearPointers,
             onAddTap = { host.addPointer(false) },
             onAddDrag = { host.addPointer(true) },
@@ -197,7 +199,7 @@ class SetEditorCoordinator(
         val item = findItem(id) as? SetItem.Reserved ?: return showList()
         screen = Screen.Reservation(id)
         val panel = SetReservationPanelView(context, item, { showMenu(id) },
-            onValue = { config -> write { SetStore.updateReservation(appContext, id, config) } },
+            onValue = { config -> saveOption { SetStore.updateReservation(appContext, id, config) } },
             requestIme = host::requestIme)
         display(panel)
         panel.renderRuntime(runtime)
@@ -207,7 +209,7 @@ class SetEditorCoordinator(
         val item = findItem(id) as? SetItem.Wait ?: return showList()
         screen = Screen.Wait(id)
         display(SetWaitPanelView(context, item, { showMenu(id) },
-            onValue = { duration -> write { SetStore.updateWait(appContext, id, duration) } },
+            onValue = { duration -> saveOption { SetStore.updateWait(appContext, id, duration) } },
             requestIme = host::requestIme))
     }
 
@@ -281,6 +283,16 @@ class SetEditorCoordinator(
     }
 
     private fun findItem(id: String): SetItem? = items.firstOrNull { it.id == id }
+
+    private fun saveOption(block: suspend () -> Boolean) {
+        val sourcePanel = visibleView ?: return
+        val revision = sourcePanel.clearSaveStatus()
+        write {
+            val saved = block()
+            // A late save must never mark a reopened editor as having saved its own changes.
+            if (saved && !disposed && isOpen && visibleView === sourcePanel) sourcePanel.showChangesSaved(revision)
+        }
+    }
 
     private fun write(block: suspend () -> Unit) {
         if (disposed) return

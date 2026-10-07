@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.sungyoon.helper.R
+import com.sungyoon.helper.overlay.pointer.PointerOverlayControlsFactory
 import com.sungyoon.helper.overlay.pointer.PointerOverlayDrawables
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -58,6 +59,8 @@ open class SetPanelView(
     backLabel: String = context.getString(R.string.set_back)
 ) : LinearLayout(context), SetPanelSurface {
     private var onBackClick = onBack
+    private var saveStatus: TextView? = null
+    private var saveFeedbackRevision = 0L
     protected val body = LinearLayout(context).apply {
         orientation = VERTICAL
         setPadding(0, 0, 0, context.setDp(12))
@@ -131,6 +134,42 @@ open class SetPanelView(
     }
 
     fun setOnBackClick(block: () -> Unit) { onBackClick = block }
+
+    protected fun addMinimizeAction(onMinimize: () -> Unit) {
+        val button = PointerOverlayControlsFactory.createCollapseButton(context, context::setDp).apply {
+            setOnClickListener { onMinimize() }
+        }
+        header.addView(button, header.childCount - 1, LayoutParams(context.setDp(38), context.setDp(38)).apply {
+            leftMargin = context.setDp(8)
+        })
+    }
+
+    protected fun addSaveStatus(centered: Boolean = false) {
+        val status = context.setText(context.getString(R.string.set_auto_saved), 12f).apply {
+            gravity = if (centered) Gravity.CENTER else Gravity.START
+            setTextColor(Color.parseColor("#B8B8B8"))
+            setPadding(0, context.setDp(12), 0, 0)
+        }
+        saveStatus = status
+        body.addView(status)
+    }
+
+    fun clearSaveStatus(): Long {
+        saveFeedbackRevision++
+        saveStatus?.apply {
+            text = context.getString(R.string.set_auto_saved)
+            setTextColor(Color.parseColor("#B8B8B8"))
+        }
+        return saveFeedbackRevision
+    }
+
+    fun showChangesSaved(revision: Long) {
+        if (revision != saveFeedbackRevision) return
+        saveStatus?.apply {
+            text = context.getString(R.string.set_changes_saved)
+            setTextColor(Color.parseColor("#80D8A0"))
+        }
+    }
 
     fun setParentPath(path: String) {
         parentPath.text = path

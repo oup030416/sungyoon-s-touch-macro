@@ -640,6 +640,10 @@ class PointerOverlayController(private val app: Context) {
                 scope.launch { SequencePrefsStore.setSetPanelVisible(app, view != null) }
             }
 
+            override fun minimizeSetContent() {
+                if (root === rootView) rootView.minimizeSetContent()
+            }
+
             override fun setPointerEditTarget(itemId: String?) {
                 if (root !== rootView) return
                 val next = itemId?.let { PointerEditTarget.Item(it) } ?: PointerEditTarget.Global
