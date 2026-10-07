@@ -143,7 +143,7 @@ class SetListPanelView(
             addControls.addView(addButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         } else {
             addMenu.options.forEach { (label, action) ->
-                addControls.addView(context.setAction(label, Color.parseColor("#4A4A4A"), action),
+                addControls.addView(context.setAction(label, Color.parseColor("#2E7D32"), action),
                     LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = context.setDp(6) })
             }
             addControls.addView(context.setAction(context.getString(R.string.set_add_close), Color.parseColor("#3A3A3A"), addMenu.onClose).apply {
@@ -262,7 +262,7 @@ class SetListPanelView(
                 orientation = HORIZONTAL
                 isBaselineAligned = false
                 options.forEachIndexed { index, (label, action) ->
-                    addView(context.setAction(label, Color.parseColor("#3A3A3A"), action).apply {
+                    addView(context.setAction(label, Color.parseColor("#2E7D32"), action).apply {
                         textSize = 12.5f
                         setPadding(context.setDp(4), context.setDp(10), context.setDp(4), context.setDp(10))
                     }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
