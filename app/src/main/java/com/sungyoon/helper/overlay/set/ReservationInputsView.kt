@@ -42,10 +42,14 @@ class ReservationInputsView(context: Context) : LinearLayout(context) {
     init {
         orientation = VERTICAL
         gravity = Gravity.CENTER_HORIZONTAL
-        addView(fieldRow(runEdit, R.string.reservation_run_seconds))
-        addView(fieldRow(restEdit, R.string.reservation_rest_seconds), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-            topMargin = context.setDp(8)
-        })
+        addView(LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER
+            addView(fieldRow(runEdit, R.string.reservation_run_seconds, compact = true),
+                LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = context.setDp(8) })
+            addView(fieldRow(restEdit, R.string.reservation_rest_seconds, compact = true),
+                LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(fieldRow(repeatEdit, R.string.reservation_repeat_count), LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
             topMargin = context.setDp(8)
         })
@@ -145,11 +149,15 @@ class ReservationInputsView(context: Context) : LinearLayout(context) {
         super.onDetachedFromWindow()
     }
 
-    private fun fieldRow(edit: EditText, label: Int): LinearLayout = LinearLayout(context).apply {
+    private fun fieldRow(edit: EditText, label: Int, compact: Boolean = false): LinearLayout = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        addView(edit, LayoutParams(context.setDp(88), LayoutParams.WRAP_CONTENT))
-        addView(context.setText(context.getString(label), 14f, true).apply { setPadding(context.setDp(10), 0, 0, 0) })
+        gravity = Gravity.CENTER
+        if (compact) edit.setPadding(context.setDp(4), context.setDp(9), context.setDp(4), context.setDp(9))
+        addView(edit, LayoutParams(context.setDp(if (compact) 58 else 88), LayoutParams.WRAP_CONTENT))
+        addView(context.setText(context.getString(label), if (compact) 12.5f else 14f, true).apply {
+            setPadding(context.setDp(if (compact) 4 else 10), 0, 0, 0)
+            maxLines = 1
+        })
     }
 
     private fun numericField(defaultValue: Int, maximum: Int): EditText = EditText(context).apply {

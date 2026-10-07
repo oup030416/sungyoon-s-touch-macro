@@ -85,7 +85,7 @@
     <string name="set_button">&lt; 세트</string>
     <string name="set_title">세트</string>
     <string name="set_back">&lt; 돌아가기</string>
-    <string name="set_start">세트 작업 시작</string>
+    <string name="set_start">작업 처음부터 시작</string>
     <string name="set_resume">세트 작업 재개</string>
     <string name="set_cancel">작업 취소</string>
     <string name="set_progress_title">세트 진행도</string>

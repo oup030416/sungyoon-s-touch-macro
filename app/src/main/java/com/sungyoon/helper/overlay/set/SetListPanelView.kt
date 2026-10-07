@@ -287,7 +287,7 @@ class SetListPanelView(
                 }
                 true
             }
-        }, LayoutParams(context.setDp(40), context.setDp(44)).apply { leftMargin = context.setDp(6) })
+        }, 0, LayoutParams(context.setDp(40), context.setDp(44)).apply { rightMargin = context.setDp(6) })
         addView(nameLine)
         val badge = context.setText("", 13f, true).apply {
             setTextColor(Color.parseColor("#80D8A0"))
