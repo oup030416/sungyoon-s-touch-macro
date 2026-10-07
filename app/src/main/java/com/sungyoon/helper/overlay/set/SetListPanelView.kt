@@ -49,7 +49,6 @@ class SetListPanelView(
     private val rowsContainer = LinearLayout(context).apply { orientation = VERTICAL }
     private val rowViews = linkedMapOf<String, LinearLayout>()
     private val badges = linkedMapOf<String, TextView>()
-    private val typeLabels = linkedMapOf<String, TextView>()
     private val decorations = linkedMapOf<String, Pair<Boolean, Boolean>>()
     private data class InlineMenu(
         val itemId: String?,
@@ -159,7 +158,6 @@ class SetListPanelView(
         rowsContainer.removeAllViews()
         rowViews.clear()
         badges.clear()
-        typeLabels.clear()
         decorations.clear()
         inlineMenuView = null
         if (items.isEmpty()) {
@@ -250,7 +248,9 @@ class SetListPanelView(
 
     private fun buildRow(item: SetItem): LinearLayout = LinearLayout(context).apply {
         orientation = VERTICAL
-        setPadding(context.setDp(14), context.setDp(12), context.setDp(14), context.setDp(12))
+        val expanded = inlineMenu?.itemId == item.id
+        val verticalPadding = context.setDp(if (expanded) 12 else 8)
+        setPadding(context.setDp(14), verticalPadding, context.setDp(14), verticalPadding)
         setOnClickListener {
             selectedId = item.id
             onSelect(item.id)
@@ -259,7 +259,6 @@ class SetListPanelView(
         val nameLine = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         nameLine.addView(context.setText(item.name, 17f, true), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         nameLine.addView(ImageButton(context).apply {
-            val expanded = inlineMenu?.itemId == item.id
             setImageResource(android.R.drawable.ic_menu_edit)
             isActivated = expanded
             imageTintList = ColorStateList.valueOf(Color.parseColor(if (expanded) "#B8B8FF" else "#FFFFFF"))
@@ -290,22 +289,16 @@ class SetListPanelView(
             }
         }, LayoutParams(context.setDp(40), context.setDp(44)).apply { leftMargin = context.setDp(6) })
         addView(nameLine)
-        val typeLabel = context.setText(typeLabel(context, item.type), 13f, true).apply {
-            setTextColor(Color.parseColor("#B8B8FF"))
-            setPadding(0, context.setDp(4), 0, 0)
-        }
-        addView(typeLabel)
-        typeLabels[item.id] = typeLabel
-        addView(context.setText(itemSummary(context, item), 13.5f).apply {
-            setTextColor(Color.parseColor("#D7D7D7"))
-            setPadding(0, context.setDp(4), 0, 0)
-        })
-        val badge = context.setText("", 12f, true).apply {
+        val badge = context.setText("", 13f, true).apply {
             setTextColor(Color.parseColor("#80D8A0"))
             setPadding(0, context.setDp(4), 0, 0)
             visibility = View.GONE
         }
         addView(badge)
+        addView(context.setText(itemSummary(context, item), 13.5f).apply {
+            setTextColor(Color.parseColor("#D7D7D7"))
+            setPadding(0, context.setDp(4), 0, 0)
+        })
         inlineMenu?.takeIf { it.itemId == item.id }?.let { menu -> addView(buildInlineMenu(item, menu)) }
         rowViews[item.id] = this
         badges[item.id] = badge
@@ -380,7 +373,6 @@ class SetListPanelView(
                         else -> "#2C2C2C"
                     }))
                 }
-                typeLabels[id]?.setTextColor(Color.parseColor(if (active) "#A4E7BB" else "#B8B8FF"))
             }
             badges[id]?.apply {
                 visibility = if (active) VISIBLE else GONE
