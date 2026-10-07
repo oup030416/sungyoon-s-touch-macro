@@ -399,13 +399,12 @@ class PointerOverlayPresetPanelView(
 
     private fun updateAdaptiveLayoutMode() {
         if (maxViewportHeightPx <= 0) return
-        val widthHint = (width - paddingLeft - paddingRight).takeIf { it > 0 }
-            ?: (resources.displayMetrics.widthPixels - dp(24))
-        val shouldCompact = measureContentHeight(widthHint) > maxViewportHeightPx
+        // List length must never move the action bar into the scrollable content.
+        val shouldCompact = maxViewportHeightPx - measureRegularFixedHeight() < dp(100)
         if (shouldCompact != compactScrollMode) {
             rebuildLayout(shouldCompact)
-        } else if (!shouldCompact) {
-            applyPreferredRegularHeight()
+        } else {
+            applyScrollViewportHeight()
         }
     }
 
@@ -423,7 +422,7 @@ class PointerOverlayPresetPanelView(
             compactContainer.setPadding(0, 0, 0, compactBottomPaddingPx)
             compactScrollView.layoutParams = LayoutParams(
                 LayoutParams.MATCH_PARENT,
-                maxViewportHeightPx
+                0
             )
             headerRowView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
             bodyContentView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
@@ -434,8 +433,8 @@ class PointerOverlayPresetPanelView(
             }
             compactContainer.addView(headerRowView)
             compactContainer.addView(bodyContentView)
-            compactContainer.addView(footerRowView)
             addView(compactScrollView)
+            addView(footerRowView)
         } else {
             compactContainer.setPadding(0, 0, 0, 0)
             bodyScrollView.removeAllViews()
@@ -451,15 +450,24 @@ class PointerOverlayPresetPanelView(
             addView(headerRowView)
             addView(bodyScrollView)
             addView(footerRowView)
-            applyPreferredRegularHeight()
         }
+        applyScrollViewportHeight()
         requestLayout()
     }
 
-    private fun applyPreferredRegularHeight() {
-        val targetPanelHeight = min(preferredPanelHeightPx, maxViewportHeightPx)
+    private fun applyScrollViewportHeight() {
+        val targetPanelHeight = if (maxViewportHeightPx > 0) min(preferredPanelHeightPx, maxViewportHeightPx)
+            else preferredPanelHeightPx
         val fixedHeight = measureRegularFixedHeight()
-        val desiredBodyHeight = (targetPanelHeight - fixedHeight).coerceAtLeast(dp(120))
+        if (compactScrollMode) {
+            val desiredScrollHeight = (targetPanelHeight - paddingTop - paddingBottom -
+                footerRowView.measuredHeight - dp(10)).coerceAtLeast(1)
+            if (compactScrollView.layoutParams.height != desiredScrollHeight) {
+                compactScrollView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, desiredScrollHeight)
+            }
+            return
+        }
+        val desiredBodyHeight = (targetPanelHeight - fixedHeight).coerceAtLeast(1)
         val current = bodyScrollView.layoutParams as? LayoutParams
         if (current?.height == desiredBodyHeight) return
         bodyScrollView.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, desiredBodyHeight).apply {
@@ -478,24 +486,6 @@ class PointerOverlayPresetPanelView(
         headerRowView.measure(childWidthSpec, childHeightSpec)
         footerRowView.measure(childWidthSpec, childHeightSpec)
         return paddingTop + paddingBottom + headerRowView.measuredHeight + footerRowView.measuredHeight + dp(10) + dp(10)
-    }
-
-    private fun measureContentHeight(widthHint: Int): Int {
-        val childWidthSpec = View.MeasureSpec.makeMeasureSpec(
-            widthHint.coerceAtLeast(1),
-            View.MeasureSpec.EXACTLY
-        )
-        val childHeightSpec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        headerRowView.measure(childWidthSpec, childHeightSpec)
-        bodyContentView.measure(childWidthSpec, childHeightSpec)
-        footerRowView.measure(childWidthSpec, childHeightSpec)
-        return paddingTop +
-            paddingBottom +
-            headerRowView.measuredHeight +
-            dp(10) +
-            bodyContentView.measuredHeight +
-            dp(10) +
-            footerRowView.measuredHeight
     }
 
     private fun detachFromParent(view: View) {
