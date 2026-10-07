@@ -2,6 +2,7 @@ package com.sungyoon.helper.model
 
 import kotlinx.serialization.Serializable
 import java.util.UUID
+import kotlin.math.abs
 
 @Serializable
 data class HighlightingPoint(
@@ -15,6 +16,11 @@ data class HighlightingPoint(
     val dragToY: Float = y,
     val dragDurationMs: Long = DEFAULT_DRAG_DURATION_MS
 ) {
+    /** A negligible endpoint displacement uses the same tap fallback as gesture dispatch. */
+    val isEffectiveDrag: Boolean
+        get() = actionType == ACTION_TYPE_DRAG &&
+            (abs(dragToX - x) > 2f || abs(dragToY - y) > 2f)
+
     companion object {
         const val ACTION_TYPE_TAP = "tap"
         const val ACTION_TYPE_DRAG = "drag"

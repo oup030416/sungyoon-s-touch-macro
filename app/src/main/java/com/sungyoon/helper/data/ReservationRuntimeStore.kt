@@ -198,12 +198,27 @@ object ReservationRuntimeStore {
 
     suspend fun stop(context: Context, finalStatus: String) {
         context.reservationRuntimeStore.edit { prefs ->
-            prefs[KEY_ACTIVE] = false
-            prefs[KEY_PAUSED] = false
-            prefs[KEY_PAUSED_REMAINING_MS] = 0L
-            prefs[KEY_NEXT_POINT_OFFSET] = 0
-            prefs[KEY_STATUS_TEXT] = finalStatus
+            stopPreferences(prefs, finalStatus, onlyWhenActive = false)
         }
+    }
+
+    /** Decide against the store transaction, never a possibly lagging service cache. */
+    suspend fun stopIfActive(context: Context, finalStatus: String): Boolean {
+        var stopped = false
+        context.reservationRuntimeStore.edit { prefs ->
+            stopped = stopPreferences(prefs, finalStatus, onlyWhenActive = true)
+        }
+        return stopped
+    }
+
+    private fun stopPreferences(prefs: MutablePreferences, finalStatus: String, onlyWhenActive: Boolean): Boolean {
+        if (onlyWhenActive && prefs[KEY_ACTIVE] != true) return false
+        prefs[KEY_ACTIVE] = false
+        prefs[KEY_PAUSED] = false
+        prefs[KEY_PAUSED_REMAINING_MS] = 0L
+        prefs[KEY_NEXT_POINT_OFFSET] = 0
+        prefs[KEY_STATUS_TEXT] = finalStatus
+        return true
     }
 
 

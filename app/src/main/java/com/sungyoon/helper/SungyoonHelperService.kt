@@ -18,10 +18,11 @@ import com.sungyoon.helper.data.ReservationRuntimeStore
 import com.sungyoon.helper.data.SequencePrefsStore
 import com.sungyoon.helper.data.TapIntervalStore
 import com.sungyoon.helper.model.HighlightingPoint
-import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.overlay.floating.FloatingToggleOverlayController
 import com.sungyoon.helper.service.dispatchDrag
 import com.sungyoon.helper.service.dispatchTap
+import com.sungyoon.helper.service.currentGestureDisplayBounds
+import com.sungyoon.helper.service.randomizedTapTarget
 import com.sungyoon.helper.service.highlight.SequenceOverlayController
 import com.sungyoon.helper.service.set.SetGestureOptions
 import com.sungyoon.helper.service.set.SetServiceController
@@ -47,13 +48,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import com.sungyoon.helper.util.PointerSizeSpec
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.cos
 import kotlin.math.max
-import kotlin.math.sin
-import kotlin.math.sqrt
-import kotlin.random.Random
 
 class SungyoonHelperService : AccessibilityService() {
 
@@ -102,6 +97,9 @@ class SungyoonHelperService : AccessibilityService() {
     private var sequenceCacheJob: Job? = null
 
     private val gestureMutex = Mutex()
+    private val configurationRefreshMutex = Mutex()
+    private val runtimeRefreshMutex = Mutex()
+    private var reservationStartJob: Job? = null
     private val ordinaryCommandJobs = linkedSetOf<Job>()
     private val ordinaryExecutionJobs = linkedSetOf<Job>()
     private var configurationReady = CompletableDeferred<Unit>()
@@ -221,13 +219,20 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
     private fun startCacheCollectors() {
+        startRuntimeCacheCollector()
+        startSequenceCacheCollectors()
+    }
+
+    private fun startRuntimeCacheCollector() {
         runtimeCacheJob?.cancel()
         runtimeCacheJob = serviceScope.launch {
             ReservationRuntimeStore.snapshotFlow(this@SungyoonHelperService).collectLatest { snapshot ->
                 applyRuntimeSnapshot(snapshot)
             }
         }
+    }
 
+    private fun startSequenceCacheCollectors() {
         sequenceCacheJob?.cancel()
         configurationReady = CompletableDeferred()
         val ready = configurationReady
@@ -278,6 +283,47 @@ class SungyoonHelperService : AccessibilityService() {
             job.invokeOnCompletion { cause ->
                 if (cause != null && !ready.isCompleted) ready.completeExceptionally(cause)
             }
+        }
+    }
+
+    /** Restart the six collectors so queued old emissions cannot overwrite startup snapshots. */
+    private suspend fun refreshGestureConfiguration(): Boolean = configurationRefreshMutex.withLock {
+        val generation = serviceGeneration
+        var restartRequired = false
+        try {
+            configurationReady.await()
+            currentCoroutineContext().ensureActive()
+            if (destroyed || generation != serviceGeneration) return@withLock false
+            restartRequired = true
+            sequenceCacheJob?.cancelAndJoin()
+            currentCoroutineContext().ensureActive()
+            if (destroyed || generation != serviceGeneration) return@withLock false
+            startSequenceCacheCollectors()
+            restartRequired = false
+            configurationReady.await()
+            currentCoroutineContext().ensureActive()
+            !destroyed && generation == serviceGeneration
+        } finally {
+            // A canceled start must not leave the live service without its normal collectors.
+            if (restartRequired && !destroyed && generation == serviceGeneration) {
+                startSequenceCacheCollectors()
+            }
+        }
+    }
+
+    private suspend fun refreshReservationRuntime(): ReservationRuntimeStore.Snapshot? = runtimeRefreshMutex.withLock {
+        val generation = serviceGeneration
+        try {
+            runtimeCacheJob?.cancelAndJoin()
+            currentCoroutineContext().ensureActive()
+            if (destroyed || generation != serviceGeneration) return@withLock null
+            val snapshot = ReservationRuntimeStore.snapshotFlow(this).first()
+            currentCoroutineContext().ensureActive()
+            if (destroyed || generation != serviceGeneration) return@withLock null
+            applyRuntimeSnapshot(snapshot)
+            snapshot
+        } finally {
+            if (!destroyed && generation == serviceGeneration) startRuntimeCacheCollector()
         }
     }
 
@@ -361,7 +407,7 @@ class SungyoonHelperService : AccessibilityService() {
             context = this,
             parentScope = serviceScope,
             options = { SetGestureOptions(cachedTapIntervalMs, cachedDragDurationMs) },
-            awaitConfiguration = { configurationReady.await() },
+            awaitConfiguration = { check(refreshGestureConfiguration()) },
             settleOrdinaryWork = { settleOrdinaryWork() },
             execute = { point, label -> executePointAction(point, label, usePointDragDuration = true) },
             onRuntimeChanged = ::syncTouchAnimationVisibility,
@@ -414,6 +460,20 @@ class SungyoonHelperService : AccessibilityService() {
         job.invokeOnCompletion { synchronized(ordinaryExecutionJobs) { ordinaryExecutionJobs.remove(job) } }
     }
 
+    private fun launchReservationStart(block: suspend CoroutineScope.() -> Unit) {
+        if (reservationStartJob?.isActive == true) return
+        val job = launchOrdinaryCommand(block)
+        reservationStartJob = job
+        job.invokeOnCompletion {
+            if (reservationStartJob === job) reservationStartJob = null
+        }
+    }
+
+    private fun cancelReservationStart() {
+        reservationStartJob?.cancel()
+        reservationStartJob = null
+    }
+
     private fun anyGestureWorkRunning(): Boolean =
         runnerJob?.isActive == true || reservationJob?.isActive == true || setController?.isGesturing == true
 
@@ -436,6 +496,7 @@ class SungyoonHelperService : AccessibilityService() {
         if (runnerJob?.isActive == true) return
 
         runnerJob = serviceScope.launch {
+            if (!refreshGestureConfiguration() || rejectOrdinaryStart()) return@launch
             SequencePrefsStore.setSequenceRunning(this@SungyoonHelperService, true)
             sendSequenceStarted()
 
@@ -475,13 +536,6 @@ class SungyoonHelperService : AccessibilityService() {
         }.also(::trackOrdinaryExecution)
     }
 
-    private fun isDragAction(point: HighlightingPoint): Boolean {
-        if (point.actionType != ACTION_TYPE_DRAG) return false
-        val dx = point.dragToX - point.x
-        val dy = point.dragToY - point.y
-        return (abs(dx) > 2f || abs(dy) > 2f)
-    }
-
     private fun dragDurationMs(point: HighlightingPoint): Long {
         val global = cachedDragDurationMs
         if (global > 0L) return global.coerceIn(minDragDurationMs, maxDragDurationMs)
@@ -507,7 +561,7 @@ class SungyoonHelperService : AccessibilityService() {
             animation?.show()
             syncOverlayPointerRadius()
         }
-        if (isDragAction(point)) {
+        if (point.isEffectiveDrag) {
             val durationMs = if (usePointDragDuration) {
                 point.dragDurationMs.coerceIn(minDragDurationMs, maxDragDurationMs)
             } else {
@@ -556,15 +610,12 @@ class SungyoonHelperService : AccessibilityService() {
         val radiusDp = cachedRandomTouchRadiusDp.coerceIn(minRandomRadiusDp, maxRandomRadiusDp)
         if (radiusDp <= 0) return point.x to point.y
 
-        val dm = resources.displayMetrics
-        val radiusPx = radiusDp * dm.density
-        val theta = Random.nextDouble(0.0, PI * 2.0)
-        val r = sqrt(Random.nextDouble(0.0, 1.0)) * radiusPx
-        val targetX = (point.x + (r * cos(theta)).toFloat())
-            .coerceIn(0f, (dm.widthPixels - 1).coerceAtLeast(0).toFloat())
-        val targetY = (point.y + (r * sin(theta)).toFloat())
-            .coerceIn(0f, (dm.heightPixels - 1).coerceAtLeast(0).toFloat())
-        return targetX to targetY
+        return randomizedTapTarget(
+            x = point.x,
+            y = point.y,
+            radiusPx = radiusDp * resources.displayMetrics.density,
+            bounds = currentGestureDisplayBounds(this),
+        )
     }
 
     private suspend fun waitUntilRunPhaseEnd(endAtMs: Long) {
@@ -583,6 +634,7 @@ class SungyoonHelperService : AccessibilityService() {
 
     private fun resetReservation(forceFromUser: Boolean) {
         if (setBlocksOrdinaryWork()) return
+        cancelReservationStart()
         // 즉시 중단
         reservationJob?.cancel()
         reservationJob = null
@@ -637,29 +689,31 @@ class SungyoonHelperService : AccessibilityService() {
         if (rejectOrdinaryStart()) return
         stopSequence()
 
-        launchOrdinaryCommand {
-            if (rejectOrdinaryStart()) return@launchOrdinaryCommand
+        launchReservationStart {
+            if (!refreshGestureConfiguration() || rejectOrdinaryStart()) return@launchReservationStart
             val alreadyActive = cachedReservationActive
             if (alreadyActive) {
                 val paused = cachedReservationPaused
                 if (paused) {
                     ReservationRuntimeStore.resume(this@SungyoonHelperService, System.currentTimeMillis())
                 }
-                startReservationJobFromRuntime()
+                val snapshot = refreshReservationRuntime() ?: return@launchReservationStart
+                if (!snapshot.active || snapshot.paused || rejectOrdinaryStart()) return@launchReservationStart
+                startReservationJobFromRuntime(configurationFresh = true)
 
-                val phase = cachedPhase
-                val endAt = cachedPhaseEndAtMs
+                val phase = snapshot.phase
+                val endAt = snapshot.phaseEndAtMs
                 val remaining = max(0L, endAt - System.currentTimeMillis())
                 val text = formatStatus(phase, remainingMs = remaining, paused = false)
 
                 sendReservationStatusChanged(text)
                 SequencePrefsStore.setSequenceRunning(this@SungyoonHelperService, true)
                 sendSequenceStarted()
-                return@launchOrdinaryCommand
+                return@launchReservationStart
             }
 
             if (reservationJob?.isActive == true) {
-                stopReservation(fromUser = false)
+                stopReservation(fromUser = false, cancelPendingStart = false)
             }
 
             // ✅ 초 우선, 없으면 (구버전) 분을 받아 초로 변환, 그것도 없으면 Prefs(초)
@@ -677,7 +731,7 @@ class SungyoonHelperService : AccessibilityService() {
                 intent?.getIntExtra(EXTRA_REPEAT_COUNT, -1)?.takeIf { it > 0 }
                     ?: ReservationPrefsStore.repeatCountFlow(this@SungyoonHelperService).first()
 
-            if (rejectOrdinaryStart()) return@launchOrdinaryCommand
+            if (rejectOrdinaryStart()) return@launchReservationStart
 
             val rs = runSec.coerceIn(1, 3600)
             val ss = restSec.coerceIn(1, 3600)
@@ -715,19 +769,21 @@ class SungyoonHelperService : AccessibilityService() {
             SequencePrefsStore.setSequenceRunning(this@SungyoonHelperService, true)
             sendSequenceStarted()
 
-            startReservationJobFromRuntime()
+            startReservationJobFromRuntime(configurationFresh = true)
         }
     }
 
 
 
-    private fun startReservationJobFromRuntime() {
+    private fun startReservationJobFromRuntime(configurationFresh: Boolean = false) {
         if (setBlocksOrdinaryWork()) return
         if (reservationJob?.isActive == true) return
         if (!reservationJobGate.compareAndSet(false, true)) return
 
         reservationJob = serviceScope.launch {
             try {
+                if (!configurationFresh && !refreshGestureConfiguration()) return@launch
+                if (setBlocksOrdinaryWork()) return@launch
                 while (isActive) {
                     val active = cachedReservationActive
                     if (!active) break
@@ -821,7 +877,7 @@ class SungyoonHelperService : AccessibilityService() {
 
                 val pointOffset = (startOffset + stepIndex) % points.size
                 val p = points[pointOffset]
-                if (isDragAction(p)) {
+                if (p.isEffectiveDrag) {
                     val required = dragDurationMs(p)
                     if (n + required > endAtMs) {
                         waitUntilRunPhaseEnd(endAtMs)
@@ -934,21 +990,27 @@ class SungyoonHelperService : AccessibilityService() {
 
     private fun pauseReservation() {
         if (setBlocksOrdinaryWork()) return
+        val pendingStarter = reservationStartJob
+        cancelReservationStart()
         launchOrdinaryCommand {
+            pendingStarter?.join()
+            val snapshot = refreshReservationRuntime() ?: return@launchOrdinaryCommand
+            if (setBlocksOrdinaryWork()) return@launchOrdinaryCommand
             val now = System.currentTimeMillis()
 
             // ✅ 중복 수신/연타 디바운스 (200ms 이내 동일 동작 무시)
-            if (now - lastPauseAt < 200L) return@launchOrdinaryCommand
+            // Finish pausing a canceled resume even when the previous pause was recent.
+            if (pendingStarter == null && now - lastPauseAt < 200L) return@launchOrdinaryCommand
             lastPauseAt = now
 
-            val active = cachedReservationActive
+            val active = snapshot.active
             if (!active) return@launchOrdinaryCommand
 
-            val paused = cachedReservationPaused
+            val paused = snapshot.paused
             if (paused) return@launchOrdinaryCommand
 
             // ✅ remaining 계산: 캐시 우선(스토어 endAt이 0/지연이어도 스킵 방지)
-            val cachedEndAt = cachedPhaseEndAtMs
+            val cachedEndAt = snapshot.phaseEndAtMs
             val remainingFromCache =
                 if (cachedEndAt > 0L) kotlin.math.max(0L, cachedEndAt - now) else -1L
 
@@ -986,37 +1048,28 @@ class SungyoonHelperService : AccessibilityService() {
 
     private fun resumeReservationIfNeeded() {
         if (rejectOrdinaryStart()) return
-        launchOrdinaryCommand {
-            if (rejectOrdinaryStart()) return@launchOrdinaryCommand
+        launchReservationStart {
+            if (!refreshGestureConfiguration() || rejectOrdinaryStart()) return@launchReservationStart
             val now = System.currentTimeMillis()
 
             // ✅ 중복 수신/연타 디바운스 (200ms 이내 동일 동작 무시)
-            if (now - lastResumeAt < 200L) return@launchOrdinaryCommand
+            if (now - lastResumeAt < 200L) return@launchReservationStart
             lastResumeAt = now
 
             val active = cachedReservationActive
-            if (!active) return@launchOrdinaryCommand
+            if (!active) return@launchReservationStart
 
             val paused = cachedReservationPaused
-            if (!paused) return@launchOrdinaryCommand
-
-            // ✅ 스토어 pausedRemaining 이 0으로 잘못 저장된 경우(경합/지연) 캐시로 복구
+            if (!paused) return@launchReservationStart
 
             // ✅ resume 처리(phase_end_at = now + remaining)
             ReservationRuntimeStore.resume(this@SungyoonHelperService, now)
+            val snapshot = refreshReservationRuntime() ?: return@launchReservationStart
+            if (!snapshot.active || snapshot.paused || rejectOrdinaryStart()) return@launchReservationStart
+            startReservationJobFromRuntime(configurationFresh = true)
 
-            // ✅ Job 단일 실행 보장(startReservationJobFromRuntime 내부에서 gate로 한번 더 막음)
-            startReservationJobFromRuntime()
-
-            // ✅ 캐시 최신화 + UI 텍스트 갱신
-            val phase = cachedPhase
-            val endAt = now + cachedPausedRemainingMs
-            cachedReservationPaused = false
-
-            cachedPhase = phase
-            cachedPhaseEndAtMs = endAt
-            cachedPausedRemainingMs = 0L
-
+            val phase = snapshot.phase
+            val endAt = snapshot.phaseEndAtMs
             val remaining = kotlin.math.max(0L, endAt - System.currentTimeMillis())
             val text = formatStatus(phase, remainingMs = remaining, paused = false)
             ReservationRuntimeStore.setStatusText(this@SungyoonHelperService, text)
@@ -1025,7 +1078,14 @@ class SungyoonHelperService : AccessibilityService() {
     }
 
 
-    private fun stopReservation(fromUser: Boolean, finalStatus: String? = null, force: Boolean = false) {
+    private fun stopReservation(
+        fromUser: Boolean,
+        finalStatus: String? = null,
+        force: Boolean = false,
+        cancelPendingStart: Boolean = true,
+    ) {
+        val pendingStarter = if (cancelPendingStart) reservationStartJob else null
+        if (cancelPendingStart) cancelReservationStart()
         if (!force && setController?.isTransitioning == true) {
             reservationJob?.cancel()
             reservationJob = null
@@ -1038,14 +1098,14 @@ class SungyoonHelperService : AccessibilityService() {
         cachedNextPointOffset = 0
 
         launchOrdinaryCommand {
-            val active = cachedReservationActive
-            if (active) {
-                val msg = finalStatus ?: if (fromUser) "예약 중지" else "예약 종료"
-                ReservationRuntimeStore.stop(this@SungyoonHelperService, msg)
+            pendingStarter?.join()
+            val msg = finalStatus ?: if (fromUser) "예약 중지" else "예약 종료"
+            if (ReservationRuntimeStore.stopIfActive(this@SungyoonHelperService, msg)) {
                 sendReservationStatusChanged(msg)
-                cachedReservationActive = false
-                cachedReservationPaused = false
             }
+            cachedReservationActive = false
+            cachedReservationPaused = false
+            cachedPausedRemainingMs = 0L
 
             SequencePrefsStore.setSequenceRunning(this@SungyoonHelperService, false)
             sendSequenceFinished()

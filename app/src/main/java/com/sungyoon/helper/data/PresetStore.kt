@@ -28,11 +28,7 @@ object PresetStore {
     }
     private val listSer = ListSerializer(PresetEntry.serializer())
 
-    @Volatile
-    private var cachedRaw: String = ""
-
-    @Volatile
-    private var cachedEntries: List<PresetEntry> = emptyList()
+    private val cache = EncodedValueCache<List<PresetEntry>>(emptyList())
 
     fun presetsFlow(context: Context): Flow<List<PresetEntry>> {
         return context.presetDataStore.data
@@ -152,25 +148,16 @@ object PresetStore {
         return updated
     }
 
-    private fun decodeEntries(raw: String): List<PresetEntry> {
-        if (raw.isBlank()) {
-            cachedRaw = ""
-            cachedEntries = emptyList()
-            return emptyList()
+    private fun decodeEntries(raw: String): List<PresetEntry> = cache.getOrDecode(raw) {
+        if (it.isBlank()) emptyList()
+        else {
+            val decoded = runCatching { json.decodeFromString(listSer, it) }.getOrDefault(emptyList())
+            sortEntries(decoded)
         }
-        if (cachedRaw == raw) return cachedEntries
-
-        val decoded = runCatching { json.decodeFromString(listSer, raw) }
-            .getOrDefault(emptyList())
-        val sorted = sortEntries(decoded)
-        cachedRaw = raw
-        cachedEntries = sorted
-        return sorted
     }
 
     private fun updateCache(raw: String, entries: List<PresetEntry>) {
-        cachedRaw = raw
-        cachedEntries = entries
+        cache.update(raw, entries)
     }
 
     private fun sortEntries(entries: List<PresetEntry>): List<PresetEntry> {

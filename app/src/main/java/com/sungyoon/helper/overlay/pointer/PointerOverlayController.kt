@@ -77,6 +77,8 @@ class PointerOverlayController(private val app: Context) {
     private var managerPausedSet = false
     private var closing = false
     private var startingSet = false
+    private var startingOrdinary = false
+    private var ordinaryStartGeneration = 0L
     private var presetSession = 0L
 
     private var latestPoints: List<HighlightingPoint> = emptyList()
@@ -179,23 +181,24 @@ class PointerOverlayController(private val app: Context) {
                     toast(app.getString(R.string.set_blocked_message))
                     return@setOnReservationStartClick
                 }
-                scope.launch {
+                launchOrdinaryStart(this) { canStart ->
                     val active = ReservationRuntimeStore.activeFlow(app).first()
                     val paused = ReservationRuntimeStore.pausedFlow(app).first()
                     if (active) {
                         if (paused)
                         {
+                            if (!canStart()) return@launchOrdinaryStart
                             app.sendBroadcast(Intent(SungyoonHelperService.ACTION_RESUME_RESERVATION).apply {
                                 setPackage(app.packageName)
                                 putExtra(SungyoonHelperService.EXTRA_MANUAL_RESUME, true)
                             })
                             toast(app.getString(R.string.toast_reservation_resumed))
                             hide()
-                            return@launch
+                            return@launchOrdinaryStart
                         }
 
                         toast(app.getString(R.string.reservation_already_running))
-                        return@launch
+                        return@launchOrdinaryStart
                     }
 
                     // ✅ 초 단위 저장
@@ -211,15 +214,16 @@ class PointerOverlayController(private val app: Context) {
                     if (!isServiceEnabled(app)) {
                         app.openAccessibilitySettings()
                         toast(app.getString(R.string.toast_accessibility_required))
-                        return@launch
+                        return@launchOrdinaryStart
                     }
 
-                    ensurePointsLoaded()
-                    if (latestPoints.isEmpty()) {
+                    val points = ensurePointsLoaded(PointerEditTarget.Global)
+                    if (points.isEmpty()) {
                         toast(app.getString(R.string.toast_points_required))
-                        return@launch
+                        return@launchOrdinaryStart
                     }
 
+                    if (!canStart()) return@launchOrdinaryStart
                     // ✅ 서비스로 초 단위 전달 (새 Extra 사용)
                     app.sendBroadcast(Intent(SungyoonHelperService.ACTION_START_RESERVATION).apply {
                         setPackage(app.packageName)
@@ -264,11 +268,17 @@ class PointerOverlayController(private val app: Context) {
 
             setOnPresetAddCurrentClick {
                 if (editTarget.value != PointerEditTarget.Global) return@setOnPresetAddCurrentClick
+                val sourceRoot = this
+                val sourceSession = presetSession
                 scope.launch {
-                    ensurePointsLoaded()
-                    val created = PresetStore.addPreset(app, latestPoints)
-                    root?.setSelectedPresetId(created.id)
-                    toast(app.getString(R.string.preset_add_saved))
+                    flushWrites()
+                    val points = ensurePointsLoaded(PointerEditTarget.Global)
+                    val created = PresetStore.addPreset(app, points)
+                    if (root === sourceRoot && presetSession == sourceSession &&
+                        editTarget.value == PointerEditTarget.Global && sourceRoot.isPresetPanelVisible()) {
+                        sourceRoot.setSelectedPresetId(created.id)
+                        toast(app.getString(R.string.preset_add_saved))
+                    }
                 }
             }
 
@@ -309,6 +319,8 @@ class PointerOverlayController(private val app: Context) {
             setOnPresetUpdateClick { presetId ->
                 if (editTarget.value != PointerEditTarget.Global) return@setOnPresetUpdateClick
                 val preset = latestPresets.firstOrNull { it.id == presetId } ?: return@setOnPresetUpdateClick
+                val sourceRoot = this
+                val sourceSession = presetSession
                 showConfirmationDialog(
                     title = app.getString(R.string.preset_update_title),
                     message = app.getString(R.string.preset_update_message),
@@ -317,9 +329,12 @@ class PointerOverlayController(private val app: Context) {
                     destructive = false
                 ) {
                     scope.launch {
-                        ensurePointsLoaded()
-                        if (PresetStore.updatePresetPoints(app, preset.id, latestPoints)) {
-                            root?.setSelectedPresetId(preset.id)
+                        flushWrites()
+                        val points = ensurePointsLoaded(PointerEditTarget.Global)
+                        if (PresetStore.updatePresetPoints(app, preset.id, points) && root === sourceRoot &&
+                            presetSession == sourceSession && editTarget.value == PointerEditTarget.Global &&
+                            sourceRoot.isPresetPanelVisible()) {
+                            sourceRoot.setSelectedPresetId(preset.id)
                             toast(app.getString(R.string.preset_updated))
                         }
                     }
@@ -562,6 +577,8 @@ class PointerOverlayController(private val app: Context) {
     }
 
     private fun removeWindow() {
+        ordinaryStartGeneration++
+        startingOrdinary = false
 
         root?.let { v ->
             val panelVisibleNow = v.isControlPanelVisible()
@@ -630,13 +647,14 @@ class PointerOverlayController(private val app: Context) {
             return
         }
 
-        scope.launch {
-            ensurePointsLoaded()
-            if (latestPoints.isEmpty()) {
+        launchOrdinaryStart(v) { canStart ->
+            val points = ensurePointsLoaded(PointerEditTarget.Global)
+            if (points.isEmpty()) {
                 toast(app.getString(R.string.toast_points_required))
-                return@launch
+                return@launchOrdinaryStart
             }
 
+            if (!canStart()) return@launchOrdinaryStart
             app.sendBroadcast(
                 Intent(SungyoonHelperService.ACTION_START_SEQUENCE).apply {
                     setPackage(app.packageName)
@@ -728,6 +746,7 @@ class PointerOverlayController(private val app: Context) {
         }, initialItems)
 
     private fun onSetStartOrResume() {
+        if (startingOrdinary) return
         if (SetRuntime.active) {
             hide(resumeSet = true)
             return
@@ -760,6 +779,30 @@ class PointerOverlayController(private val app: Context) {
 
     private fun sendSetCommand(action: String) {
         app.sendBroadcast(Intent(action).setPackage(app.packageName))
+    }
+
+    private fun launchOrdinaryStart(
+        sourceRoot: PointerOverlayRootView,
+        command: suspend (() -> Boolean) -> Unit
+    ) {
+        if (root !== sourceRoot || startingOrdinary || startingSet || closing) return
+        startingOrdinary = true
+        val generation = ++ordinaryStartGeneration
+        val canStart = {
+            root === sourceRoot && ordinaryStartGeneration == generation && !closing && !SetRuntime.active
+        }
+        scope.launch {
+            try {
+                // A release or a debounced option edit must finish before its first gesture.
+                flushWrites()
+                if (!canStart()) return@launch
+                flushSharedOptions()
+                if (!canStart()) return@launch
+                command(canStart)
+            } finally {
+                if (ordinaryStartGeneration == generation) startingOrdinary = false
+            }
+        }
     }
 
     private fun launchWrite(block: suspend () -> Unit) {

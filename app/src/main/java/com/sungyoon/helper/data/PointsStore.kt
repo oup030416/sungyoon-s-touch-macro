@@ -30,29 +30,15 @@ object PointsStore {
     }
     private val listSer = ListSerializer(HighlightingPoint.serializer())
 
-    @Volatile
-    private var cachedRaw: String = ""
+    private val cache = EncodedValueCache<List<HighlightingPoint>>(emptyList())
 
-    @Volatile
-    private var cachedPoints: List<HighlightingPoint> = emptyList()
-
-    private fun decodePoints(raw: String): List<HighlightingPoint> {
-        if (raw.isBlank()) {
-            cachedRaw = ""
-            cachedPoints = emptyList()
-            return emptyList()
-        }
-        if (cachedRaw == raw) return cachedPoints
-
-        val decoded = runCatching { json.decodeFromString(listSer, raw) }.getOrDefault(emptyList())
-        cachedRaw = raw
-        cachedPoints = decoded
-        return decoded
+    private fun decodePoints(raw: String): List<HighlightingPoint> = cache.getOrDecode(raw) {
+        if (it.isBlank()) emptyList()
+        else runCatching { json.decodeFromString(listSer, it) }.getOrDefault(emptyList())
     }
 
     private fun updateCache(raw: String, points: List<HighlightingPoint>) {
-        cachedRaw = raw
-        cachedPoints = points
+        cache.update(raw, points)
     }
 
     fun pointsFlow(context: Context): Flow<List<HighlightingPoint>> {
