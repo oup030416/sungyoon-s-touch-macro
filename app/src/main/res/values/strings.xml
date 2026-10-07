@@ -89,7 +89,8 @@
     <string name="set_cancel">세트 작업 취소</string>
     <string name="set_add_item">+ 항목 추가</string>
     <string name="set_add_title">항목 추가</string>
-    <string name="set_add_collapse">항목 추가 접기</string>
+    <string name="set_add_close">×</string>
+    <string name="set_add_close_description">항목 추가 닫기</string>
     <string name="set_item_menu">항목 설정</string>
     <string name="set_menu_collapse">접기</string>
     <string name="set_item_path">%1$s › %2$s</string>

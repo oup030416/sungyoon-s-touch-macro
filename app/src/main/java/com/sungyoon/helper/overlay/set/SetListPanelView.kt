@@ -45,7 +45,7 @@ class SetListPanelView(
     )
     private var inlineMenu: InlineMenu? = null
     private var inlineMenuView: View? = null
-    private val addMenuContainer = LinearLayout(context).apply { orientation = VERTICAL }
+    private val addControls = LinearLayout(context).apply { orientation = HORIZONTAL }
     private val addButton = context.setAction(context.getString(R.string.set_add_item), Color.parseColor("#4A4A4A"), onAdd)
     private var entries = emptyList<SetItem>()
     private var selectedId: String? = null
@@ -84,9 +84,8 @@ class SetListPanelView(
     init {
         body.addView(status)
         body.addView(rowsContainer)
-        body.addView(addButton,
+        body.addView(addControls,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(12) })
-        body.addView(addMenuContainer)
         listOf(deleteButton, duplicateButton, startButton).forEachIndexed { index, button ->
             footer.addView(button, LayoutParams(0, LayoutParams.WRAP_CONTENT, if (index == 2) 2f else 1f).apply {
                 leftMargin = if (index == 0) 0 else context.setDp(8)
@@ -122,11 +121,19 @@ class SetListPanelView(
                 })
             }
         }
-        addMenuContainer.removeAllViews()
+        addControls.removeAllViews()
         val addMenu = inlineMenu?.takeIf { it.itemId == null }
-        addButton.text = context.getString(if (addMenu != null) R.string.set_add_collapse else R.string.set_add_item)
-        if (addMenu != null) {
-            addMenuContainer.addView(buildInlineMenu(addMenu), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        if (addMenu == null) {
+            addControls.addView(addButton, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        } else {
+            addMenu.options.forEach { (label, action) ->
+                addControls.addView(context.setAction(label, Color.parseColor("#4A4A4A"), action),
+                    LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { rightMargin = context.setDp(6) })
+            }
+            addControls.addView(context.setAction(context.getString(R.string.set_add_close), Color.parseColor("#3A3A3A"), addMenu.onClose).apply {
+                contentDescription = context.getString(R.string.set_add_close_description)
+                setPadding(context.setDp(4), context.setDp(10), context.setDp(4), context.setDp(10))
+            }, LayoutParams(context.setDp(40), LayoutParams.WRAP_CONTENT))
         }
         syncDecorations()
         restoreBodyScroll(scroll)
@@ -236,7 +243,7 @@ class SetListPanelView(
         addView(LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(context.setText(context.getString(if (menu.itemId == null) R.string.set_add_title else R.string.set_item_menu), 13f, true),
+            addView(context.setText(context.getString(R.string.set_item_menu), 13f, true),
                 LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
             addView(context.setAction(context.getString(R.string.set_menu_collapse), Color.parseColor("#3A3A3A"), menu.onClose))
         }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(8) })
