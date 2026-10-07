@@ -16,6 +16,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import com.sungyoon.helper.R
 import com.sungyoon.helper.util.toast
@@ -35,6 +36,11 @@ class PointerOverlayModalHostView(
     }
 
     private var inputEdit: EditText? = null
+    private val cardScrollHost = ScrollView(context).apply {
+        isFillViewport = false
+        isVerticalScrollBarEnabled = false
+        addView(card, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+    }
 
     init {
         layoutParams = LayoutParams(
@@ -50,7 +56,7 @@ class PointerOverlayModalHostView(
         }
 
         addView(
-            card,
+            cardScrollHost,
             LayoutParams(
                 LayoutParams.MATCH_PARENT,
                 LayoutParams.WRAP_CONTENT,

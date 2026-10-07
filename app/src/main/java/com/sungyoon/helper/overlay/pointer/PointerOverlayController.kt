@@ -33,6 +33,7 @@ import com.sungyoon.helper.model.PresetEntry
 import com.sungyoon.helper.model.SetItem
 import com.sungyoon.helper.overlay.set.SetEditorCoordinator
 import com.sungyoon.helper.overlay.set.SetEditorHost
+import com.sungyoon.helper.overlay.configureFullScreenOverlayBounds
 import com.sungyoon.helper.service.set.SetRuntime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -407,6 +408,7 @@ class PointerOverlayController(private val app: Context) {
             x = 0
             y = 0
         }
+        configureFullScreenOverlayBounds(v, lp)
 
         try {
             wm.addView(v, lp)
@@ -938,7 +940,7 @@ class PointerOverlayController(private val app: Context) {
             val localCy = v.height / 2f
             val endOffset = 120f * app.resources.displayMetrics.density
             val localEndX = (localCx + endOffset)
-                .coerceIn(pointerHalfSizePx(), (v.width - pointerHalfSizePx()).coerceAtLeast(pointerHalfSizePx()))
+                .coerceIn(0f, (v.width - 1).coerceAtLeast(0).toFloat())
             val localEndY = localCy
 
             val (sx, sy) = v.localCenterToScreen(localCx, localCy)
@@ -972,10 +974,6 @@ class PointerOverlayController(private val app: Context) {
 
     private fun clampRandomRadiusDp(dp: Int): Int {
         return dp.coerceIn(minRandomRadiusDp, maxRandomRadiusDp)
-    }
-
-    private fun pointerHalfSizePx(): Float {
-        return 56f * app.resources.displayMetrics.density / 2f
     }
 
     private fun draggingKey(id: String, endpoint: PointerOverlayRootView.Endpoint): String {

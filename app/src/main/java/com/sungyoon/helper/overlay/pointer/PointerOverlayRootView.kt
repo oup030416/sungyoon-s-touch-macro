@@ -16,8 +16,9 @@ import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.ScrollView
-import androidx.core.view.children
+import androidx.core.graphics.Insets
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.children
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
@@ -51,6 +52,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private var panelVisible: Boolean = true
     private var keyboardInsetBottom = 0
+    private var controlInsets = Insets.NONE
     private var onRequestIme: ((Boolean) -> Unit)? = null
     private val keyboard = OverlayImeController(this, ::requestIme)
 
@@ -223,6 +225,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         addView(miniPanelToggleBtn)
         addView(modalHost)
+        miniPanelToggleBtn.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+            if (!panelVisible) updateMoveStickPosition()
+        }
 
         // move stick / delete button
         pointerLayer.addView(
@@ -765,6 +770,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         // ✅ 추가: 터치 패널(컨트롤 패널) 표시 상태 저장용 콜백
         onControlPanelVisibleChanged?.invoke(panelVisible)
+        updateMoveStickPosition()
     }
 
     override fun onApplyWindowInsets(insets: WindowInsets): WindowInsets {
@@ -772,14 +778,16 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val keyboardBottom = if (compatibleInsets.isVisible(WindowInsetsCompat.Type.ime())) {
             compatibleInsets.getInsets(WindowInsetsCompat.Type.ime()).bottom
         } else 0
-        if (keyboardInsetBottom != keyboardBottom) {
+        val safeInsets = compatibleInsets.getInsets(
+            WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+        )
+        if (keyboardInsetBottom != keyboardBottom || controlInsets != safeInsets) {
             keyboardInsetBottom = keyboardBottom
+            controlInsets = safeInsets
             post {
                 if (isAttachedToWindow) {
-                    updateControlPanelViewport()
-                    syncReservationPanelLayout()
-                    syncPresetPanelLayout()
-                    syncSetContentLayout()
+                    applyResponsiveLayout(width, height)
+                    updateMoveStickPosition()
                 }
             }
         }
@@ -1210,6 +1218,15 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
                         MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                             if (dragging) {
+                                if (ev.actionMasked == MotionEvent.ACTION_UP) {
+                                    // UP can contain a newer position than the last delivered MOVE.
+                                    moveSelectedPointerToLocalCenter(
+                                        pointId, endpoint,
+                                        downCenterX + ev.rawX - downRawX,
+                                        downCenterY + ev.rawY - downRawY,
+                                        notifyMove = true
+                                    )
+                                }
                                 val current = if (endpoint == Endpoint.START) views[pointId] else dragEndViews[pointId]
                                 val cx = current?.getCenterX() ?: getCenterX()
                                 val cy = current?.getCenterY() ?: getCenterY()
@@ -1565,6 +1582,14 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (handleDragging) {
+                        if (ev.actionMasked == MotionEvent.ACTION_UP) {
+                            moveSelectedPointerToLocalCenter(
+                                id, endpoint,
+                                handleDownCenterX + ev.rawX - handleDownRawX,
+                                handleDownCenterY + ev.rawY - handleDownRawY,
+                                notifyMove = true
+                            )
+                        }
                         val current = selectedPointerView()
                         val cx = current?.getCenterX() ?: pv.getCenterX()
                         val cy = current?.getCenterY() ?: pv.getCenterY()
@@ -1599,9 +1624,9 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val parentW = pointerLayer.width.coerceAtLeast(1)
         val parentH = pointerLayer.height.coerceAtLeast(1)
 
-        val half = pointerTouchSizePx / 2f
-        var clampedCx = cx.coerceIn(half, (parentW - half).coerceAtLeast(half))
-        var clampedCy = cy.coerceIn(half, (parentH - half).coerceAtLeast(half))
+        // The gesture center can reach every pixel; the larger hitbox may be clipped.
+        var clampedCx = cx.coerceIn(0f, (parentW - 1).toFloat())
+        var clampedCy = cy.coerceIn(0f, (parentH - 1).toFloat())
 
         val opposite = if (endpoint == Endpoint.START) dragEndViews[id] else views[id]
         if (opposite != null) {
@@ -1651,79 +1676,69 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         val parentW = pointerLayer.width
         val parentH = pointerLayer.height
+        val usableWidth = parentW - controlInsets.left - controlInsets.right
+        val usableHeight = parentH - controlInsets.top - max(keyboardInsetBottom, controlInsets.bottom)
+        if (usableWidth < moveStickHandleSizePx * 3 + moveStickMarginPx * 4 ||
+            usableHeight < moveStickHandleSizePx + moveStickMarginPx * 2) {
+            hideMoveStickImmediately()
+            return
+        }
+        val safeLeft = controlInsets.left + moveStickMarginPx
+        val safeRight = parentW - controlInsets.right - moveStickMarginPx
+        val minHandleTop = (controlInsets.top + moveStickMarginPx).toFloat()
+        val maxHandleTop = (parentH - max(keyboardInsetBottom, controlInsets.bottom) -
+            moveStickHandleSizePx - moveStickMarginPx).toFloat().coerceAtLeast(minHandleTop)
 
         val cx = pv.getCenterX()
 
         val btnLeft = (cx - moveStickHandleSizePx / 2f).coerceIn(
-            moveStickMarginPx.toFloat(),
-            (parentW - moveStickHandleSizePx - moveStickMarginPx).toFloat()
-                .coerceAtLeast(moveStickMarginPx.toFloat())
+            safeLeft.toFloat(),
+            (safeRight - moveStickHandleSizePx).toFloat().coerceAtLeast(safeLeft.toFloat())
         )
-
-        val lineLeft = (cx - moveStickLineWidthPx / 2f).coerceIn(
-            moveStickMarginPx.toFloat(),
-            (parentW - moveStickLineWidthPx - moveStickMarginPx).toFloat()
-                .coerceAtLeast(moveStickMarginPx.toFloat())
-        )
-
-        val minLineH = dp(12).toFloat()
-        var handleTop: Float
-
-        if (stickPlaceBelow) {
-            val pointerBottom = pv.y + pointerTouchSizePx
-            val lineTop = pointerBottom + moveStickMarginPx
-
-            val maxHandleTop = (parentH - moveStickHandleSizePx - moveStickMarginPx).toFloat()
-            val desiredHandleTop = lineTop + moveStickDesiredLenPx
-            handleTop = min(desiredHandleTop, maxHandleTop)
-
-            if (handleTop < lineTop + minLineH) {
-                handleTop = (lineTop + minLineH).coerceAtMost(maxHandleTop)
-            }
-
-            val lineH = (handleTop - lineTop).coerceAtLeast(minLineH)
-
-            val lpLine = (moveStickLine.layoutParams as FrameLayout.LayoutParams).apply {
-                width = moveStickLineWidthPx
-                height = lineH.roundToInt()
-                gravity = Gravity.TOP or Gravity.START
-            }
-            moveStickLine.layoutParams = lpLine
-            moveStickLine.x = lineLeft
-            moveStickLine.y = lineTop
+        val desiredDelXRight = btnLeft + moveStickHandleSizePx + moveStickMarginPx
+        val desiredDelXLeft = btnLeft - moveStickHandleSizePx - moveStickMarginPx
+        val delX = if (desiredDelXRight + moveStickHandleSizePx <= safeRight) {
+            desiredDelXRight
         } else {
-            val pointerTop = pv.y
-            val lineBottom = pointerTop - moveStickMarginPx
+            desiredDelXLeft.coerceAtLeast(safeLeft.toFloat())
+        }
 
-            val minHandleTop = moveStickMarginPx.toFloat()
-            val desiredHandleTop = lineBottom - moveStickDesiredLenPx - moveStickHandleSizePx
-            handleTop = desiredHandleTop.coerceAtLeast(minHandleTop)
-
-            val lineTop = handleTop + moveStickHandleSizePx
-            var lineH = (lineBottom - lineTop).coerceAtLeast(minLineH)
-
-            val needBottom = lineTop + minLineH
-            if (lineBottom < needBottom) {
-                val shiftDown = (needBottom - lineBottom)
-                handleTop = (handleTop + shiftDown).coerceAtMost(
-                    (parentH - moveStickHandleSizePx - moveStickMarginPx).toFloat()
-                        .coerceAtLeast(minHandleTop)
-                )
-                val newLineTop = handleTop + moveStickHandleSizePx
-                lineH = (lineBottom - newLineTop).coerceAtLeast(minLineH)
+        val pointerEdge = if (stickPlaceBelow) {
+            pv.y + pointerTouchSizePx + moveStickMarginPx
+        } else pv.y - moveStickMarginPx
+        val desiredHandleTop = if (stickPlaceBelow) {
+            pointerEdge + moveStickDesiredLenPx
+        } else pointerEdge - moveStickDesiredLenPx - moveStickHandleSizePx
+        var handleTop = desiredHandleTop.coerceIn(minHandleTop, maxHandleTop)
+        if (!panelVisible && miniPanelToggleBtn.visibility == View.VISIBLE &&
+            miniPanelToggleBtn.width > 0 && miniPanelToggleBtn.height > 0) {
+            miniPanelToggleBtn.getLocationOnScreen(tmpLoc)
+            val (toggleLeft, toggleTop) = screenCenterToLocal(tmpLoc[0].toFloat(), tmpLoc[1].toFloat())
+            val toggleRight = toggleLeft + miniPanelToggleBtn.width
+            val toggleBottom = toggleTop + miniPanelToggleBtn.height
+            val overlapsHorizontally = (btnLeft < toggleRight && btnLeft + moveStickHandleSizePx > toggleLeft) ||
+                (delX < toggleRight && delX + moveStickHandleSizePx > toggleLeft)
+            if (overlapsHorizontally && handleTop < toggleBottom &&
+                handleTop + moveStickHandleSizePx > toggleTop) {
+                // The collapsed panel toggle sits above the pointer layer and must stay reachable.
+                val belowToggle = toggleBottom + moveStickMarginPx
+                val aboveToggle = toggleTop - moveStickMarginPx - moveStickHandleSizePx
+                handleTop = when {
+                    belowToggle <= maxHandleTop -> belowToggle.coerceAtLeast(minHandleTop)
+                    aboveToggle >= minHandleTop -> aboveToggle.coerceAtMost(maxHandleTop)
+                    else -> {
+                        hideMoveStickImmediately()
+                        return
+                    }
+                }
             }
-
-            val finalLineTop = handleTop + moveStickHandleSizePx
-            val finalLineH = (lineBottom - finalLineTop).coerceAtLeast(minLineH)
-
-            val lpLine = (moveStickLine.layoutParams as FrameLayout.LayoutParams).apply {
-                width = moveStickLineWidthPx
-                height = finalLineH.roundToInt()
-                gravity = Gravity.TOP or Gravity.START
-            }
-            moveStickLine.layoutParams = lpLine
-            moveStickLine.x = lineLeft
-            moveStickLine.y = finalLineTop
+        }
+        val buttonCenterX = btnLeft + moveStickHandleSizePx / 2f
+        // Clamped buttons need a diagonal connector when the point reaches a screen edge.
+        if (stickPlaceBelow) {
+            positionMoveStickLine(cx, pointerEdge, buttonCenterX, handleTop)
+        } else {
+            positionMoveStickLine(buttonCenterX, handleTop + moveStickHandleSizePx, cx, pointerEdge)
         }
 
         val lpBtn = (moveStickHandle.layoutParams as FrameLayout.LayoutParams).apply {
@@ -1734,15 +1749,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         moveStickHandle.layoutParams = lpBtn
         moveStickHandle.x = btnLeft
         moveStickHandle.y = handleTop
-
-        // 삭제 버튼: 이동 핸들 옆(우선 오른쪽, 공간 없으면 왼쪽)
-        val desiredDelXRight = btnLeft + moveStickHandleSizePx + moveStickMarginPx
-        val desiredDelXLeft = btnLeft - moveStickHandleSizePx - moveStickMarginPx
-        val delX = if (desiredDelXRight + moveStickHandleSizePx <= parentW - moveStickMarginPx) {
-            desiredDelXRight
-        } else {
-            desiredDelXLeft.coerceAtLeast(moveStickMarginPx.toFloat())
-        }
 
         val lpDel = (deletePointerBtn.layoutParams as FrameLayout.LayoutParams).apply {
             width = moveStickHandleSizePx
@@ -1801,6 +1807,31 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         }
     }
 
+    private fun hideMoveStickImmediately() {
+        // Cancel fades so a rapid viewport recovery cannot receive a stale GONE callback.
+        listOf(moveStickLine, moveStickHandle, deletePointerBtn).forEach {
+            it.animate().cancel()
+            it.visibility = View.GONE
+            it.alpha = 0f
+        }
+    }
+
+    private fun positionMoveStickLine(fromX: Float, fromY: Float, toX: Float, toY: Float) {
+        val dx = toX - fromX
+        val dy = toY - fromY
+        val lp = (moveStickLine.layoutParams as FrameLayout.LayoutParams).apply {
+            width = moveStickLineWidthPx
+            height = hypot(dx, dy).roundToInt().coerceAtLeast(1)
+            gravity = Gravity.TOP or Gravity.START
+        }
+        moveStickLine.layoutParams = lp
+        moveStickLine.pivotX = moveStickLineWidthPx / 2f
+        moveStickLine.pivotY = 0f
+        moveStickLine.rotation = Math.toDegrees(atan2(dy, dx).toDouble()).toFloat() - 90f
+        moveStickLine.x = fromX - moveStickLineWidthPx / 2f
+        moveStickLine.y = fromY
+    }
+
     private fun findPointerTargetAtRaw(rawX: Float, rawY: Float): Pair<String, Endpoint>? {
         if (pointerLayer.visibility != View.VISIBLE) return null
         for (i in pointerLayer.childCount - 1 downTo 0) {
@@ -1820,29 +1851,37 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private fun applyResponsiveLayout(w: Int, h: Int) {
         if (w <= 0 || h <= 0) return
-        val landscape = w > h
+        val safeWidth = (w - controlInsets.left - controlInsets.right).coerceAtLeast(1)
+        val safeHeight = (h - controlInsets.top - controlInsets.bottom).coerceAtLeast(1)
+        val landscape = safeWidth > safeHeight
         val sideMax = dp(320)
-        val sideWidth = min(sideMax, (w * 0.42f).roundToInt()).coerceAtLeast(dp(240))
+        val panelWidth = (safeWidth - dp(24)).coerceAtLeast(1)
+        val sideWidth = min(sideMax, (safeWidth * 0.42f).roundToInt())
+            .coerceAtLeast(dp(240)).coerceAtMost(panelWidth)
 
         val panelLp = FrameLayout.LayoutParams(
             if (landscape) sideWidth else LayoutParams.MATCH_PARENT,
             LayoutParams.WRAP_CONTENT
         ).apply {
-            gravity = if (landscape) (Gravity.TOP or Gravity.START) else (Gravity.TOP or Gravity.CENTER_HORIZONTAL)
-            leftMargin = dp(12)
-            rightMargin = dp(12)
-            topMargin = dp(12)
+            gravity = Gravity.TOP or Gravity.START
+            leftMargin = controlInsets.left + dp(12)
+            rightMargin = controlInsets.right + dp(12)
+            topMargin = controlInsets.top + dp(12)
         }
         controlPanelScrollHost.layoutParams = panelLp
         updateControlPanelViewport()
         syncReservationPanelLayout()
         syncPresetPanelLayout()
         syncSetContentLayout()
+        // Only control surfaces avoid system/IME areas; the pointer plane stays unpadded.
+        modalHost.setPadding(controlInsets.left, controlInsets.top, controlInsets.right,
+            max(keyboardInsetBottom, controlInsets.bottom))
 
         val miniLp = FrameLayout.LayoutParams(dp(44), dp(44)).apply {
             gravity = Gravity.TOP or Gravity.START
-            leftMargin = dp(12)
-            topMargin = dp(12)
+            leftMargin = controlInsets.left + dp(12)
+            rightMargin = controlInsets.right + dp(12)
+            topMargin = controlInsets.top + dp(12)
         }
         miniPanelToggleBtn.layoutParams = miniLp
 
@@ -1857,7 +1896,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val widthHint = if (hostLp.width > 0) {
             hostLp.width
         } else {
-            (width - hostLp.leftMargin - hostLp.rightMargin).coerceAtLeast(dp(240))
+            (width - hostLp.leftMargin - hostLp.rightMargin).coerceAtLeast(1)
         }
         val contentHeight = measureDesiredHeight(controls.controlPanel, widthHint)
         val compact = contentHeight > availableHeight
@@ -1879,7 +1918,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         val topMargin = hostLp?.topMargin ?: dp(12)
         val bottomPadding = dp(12)
         return if (height > 0) {
-            (height - keyboardInsetBottom - topMargin - bottomPadding).coerceAtLeast(1)
+            (height - max(keyboardInsetBottom, controlInsets.bottom) - topMargin - bottomPadding).coerceAtLeast(1)
         } else dp(220)
     }
 
