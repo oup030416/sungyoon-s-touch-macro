@@ -5,6 +5,7 @@ import android.app.DownloadManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.database.Cursor
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -89,6 +90,7 @@ object AppUpdateManager {
     }
 
     fun handleDownloadCompleted(context: Context, downloadId: Long) {
+        if (clearInstalledUpdate(context)) return
         val prefs = prefs(context)
         val expectedId = prefs.getLong(KEY_DOWNLOAD_ID, -1L)
         if (downloadId != expectedId || expectedId < 0L) return
@@ -109,6 +111,7 @@ object AppUpdateManager {
     }
 
     fun resumePendingInstallIfNeeded(activity: Activity) {
+        if (clearInstalledUpdate(activity)) return
         val prefs = prefs(activity)
         val waitingPermission = prefs.getBoolean(KEY_AWAITING_INSTALL_PERMISSION, false)
         val fileName = prefs.getString(KEY_FILE_NAME, null) ?: return
@@ -130,8 +133,33 @@ object AppUpdateManager {
 
     fun cancelPendingUpdate(context: Context): Boolean {
         val prefs = prefs(context)
-        val downloadId = prefs.getLong(KEY_DOWNLOAD_ID, -1L)
-        val fileName = prefs.getString(KEY_FILE_NAME, null)
+        val changed = removeUpdateArtifacts(context, prefs.getLong(KEY_DOWNLOAD_ID, -1L), prefs.getString(KEY_FILE_NAME, null))
+        clearUpdateRecord(prefs)
+        return changed
+    }
+
+    fun clearInstalledUpdate(context: Context): Boolean = clearInstalledUpdate(
+        prefs(context), BuildConfig.DEV_VERSION_CODE,
+    ) { downloadId, fileName -> removeUpdateArtifacts(context, downloadId, fileName) }
+
+    internal fun clearInstalledUpdate(
+        preferences: SharedPreferences,
+        installedVersionCode: Int,
+        removeArtifacts: (Long, String?) -> Unit,
+    ): Boolean {
+        val targetVersionCode = preferences.getInt(KEY_VERSION_CODE, -1)
+        if (targetVersionCode <= 0 || installedVersionCode < targetVersionCode) return false
+        // Launching the installer is not proof of success; the running binary's code is.
+        try {
+            removeArtifacts(preferences.getLong(KEY_DOWNLOAD_ID, -1L), preferences.getString(KEY_FILE_NAME, null))
+        } catch (_: Exception) {
+            // Missing/inaccessible artifacts must not leave completed installation state in the UI.
+        }
+        clearUpdateRecord(preferences)
+        return true
+    }
+
+    private fun removeUpdateArtifacts(context: Context, downloadId: Long, fileName: String?): Boolean {
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as? DownloadManager
 
         var changed = false
@@ -149,15 +177,17 @@ object AppUpdateManager {
             }
         }
 
-        prefs.edit()
+        return changed
+    }
+
+    private fun clearUpdateRecord(preferences: SharedPreferences) {
+        preferences.edit()
             .remove(KEY_DOWNLOAD_ID)
             .remove(KEY_FILE_NAME)
             .remove(KEY_VERSION_CODE)
             .remove(KEY_ASSET_SIZE_BYTES)
-            .putBoolean(KEY_AWAITING_INSTALL_PERMISSION, false)
+            .remove(KEY_AWAITING_INSTALL_PERMISSION)
             .apply()
-
-        return changed
     }
 
     fun getDownloadProgress(context: Context): AppUpdateDownloadProgress? {

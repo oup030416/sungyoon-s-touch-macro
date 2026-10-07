@@ -16,6 +16,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AppUpdateManager.clearInstalledUpdate(this)
 
         val v = MainScreenView(this)
         mainView = v

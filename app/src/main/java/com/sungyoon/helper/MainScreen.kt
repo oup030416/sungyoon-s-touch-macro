@@ -379,6 +379,7 @@ class MainScreenView(context: Context) : FrameLayout(context) {
     }
 
     fun refreshUpdateProgress() {
+        AppUpdateManager.clearInstalledUpdate(context)
         if (AppUpdateManager.isAwaitingInstallPermission(context)) {
             resetDownloadSpeed()
             updateUiState = UpdateUiState.AwaitingInstallPermission
@@ -396,8 +397,9 @@ class MainScreenView(context: Context) : FrameLayout(context) {
             updateUiState = UpdateUiState.Downloading(progress)
             renderUpdateState()
             startProgressPolling()
-        } else if (updateUiState is UpdateUiState.Downloading) {
+        } else if (updateUiState is UpdateUiState.Downloading || updateUiState is UpdateUiState.AwaitingInstallPermission) {
             resetDownloadSpeed()
+            latestUpdateInfo = latestUpdateInfo?.takeIf { it.versionCode > BuildConfig.DEV_VERSION_CODE }
             updateUiState = latestUpdateInfo?.let { UpdateUiState.Outdated(it) } ?: UpdateUiState.Idle
             renderUpdateState()
             stopProgressPolling()
