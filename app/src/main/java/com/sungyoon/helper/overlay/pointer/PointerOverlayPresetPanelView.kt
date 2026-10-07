@@ -100,8 +100,10 @@ class PointerOverlayPresetPanelView(
             selectedPresetId?.let { onDeleteClick?.invoke(it) }
         }.apply {
             minWidth = 0
+            minimumWidth = 0
             isSingleLine = true
-            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+            setPadding(dp(4), dp(12), dp(4), dp(12))
+            layoutParams = LayoutParams(dp(40), LayoutParams.WRAP_CONTENT)
         }
 
         updateBtn = actionButton(
@@ -111,9 +113,11 @@ class PointerOverlayPresetPanelView(
             if (!importMode) selectedPresetId?.let { onUpdateClick?.invoke(it) }
         }.apply {
             minWidth = 0
+            minimumWidth = 0
             isSingleLine = true
-            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-                leftMargin = dp(10)
+            setPadding(dp(3), dp(12), dp(3), dp(12))
+            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(4)
             }
         }
 
@@ -123,8 +127,12 @@ class PointerOverlayPresetPanelView(
         ) {
             selectedPresetId?.let { onLoadClick?.invoke(it) }
         }.apply {
-            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
-                leftMargin = dp(10)
+            minWidth = 0
+            minimumWidth = 0
+            isSingleLine = true
+            setPadding(dp(3), dp(12), dp(3), dp(12))
+            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1.75f).apply {
+                leftMargin = dp(4)
             }
         }
 
