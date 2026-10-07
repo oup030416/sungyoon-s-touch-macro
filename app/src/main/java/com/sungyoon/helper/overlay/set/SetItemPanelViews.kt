@@ -53,7 +53,11 @@ internal class SetPointerPanelView(
             body.addView(LinearLayout(context).apply {
                 orientation = HORIZONTAL
                 buttons.forEachIndexed { index, (label, action) ->
-                    val color = if (rowIndex == 0 && index == 0) "#8E2430" else "#4A4A4A"
+                    val color = when {
+                        rowIndex == 0 && index == 0 -> "#8E2430"
+                        rowIndex == 0 -> "#2E7D32"
+                        else -> "#5B5CE6"
+                    }
                     addView(context.setAction(label, Color.parseColor(color), action),
                         LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply { leftMargin = if (index == 0) 0 else context.setDp(8) })
                 }
