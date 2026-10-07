@@ -8,16 +8,29 @@ internal class SetCursor {
     private val deferred = mutableSetOf<String>()
     private var currentId: String? = null
     private var currentIndex = 0
+    private var observedIds = emptyList<String>()
 
     @Synchronized
     fun observe(items: List<SetItem>) {
-        val id = currentId ?: return
+        val latestIds = items.map { it.id }
+        val id = currentId
+        if (id == null) {
+            observedIds = latestIds
+            return
+        }
         val index = items.indexOfFirst { it.id == id }
-        if (index >= 0) currentIndex = index
+        if (index >= 0) {
+            currentIndex = index
+        } else {
+            // Flow can coalesce deletion of the current item and earlier rows into one snapshot.
+            val remainingIds = latestIds.toHashSet()
+            currentIndex -= observedIds.take(currentIndex).count { it !in remainingIds }
+        }
         // Moving an upcoming item above the cursor defers it for the entire pass.
         items.take(currentIndex).forEach {
             if (it.id != id && it.id !in completed) deferred += it.id
         }
+        observedIds = latestIds
     }
 
     @Synchronized
@@ -26,6 +39,7 @@ internal class SetCursor {
         deferred.clear()
         currentId = null
         currentIndex = 0
+        observedIds = items.map { it.id }
         return select(items, 0)
     }
 

@@ -16,10 +16,13 @@ import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 /** Connects persistent set items, the runner and presentation to one accessibility-service lifetime. */
@@ -38,6 +41,7 @@ class SetServiceController(
     private val itemsReady = CompletableDeferred<Unit>()
     private val messages = SetMessageOverlayController(context)
     private val runner = SetRunner(scope, items, options, SystemClock::elapsedRealtime, execute)
+    private var itemCollectionJob: Job? = null
     private var startJob: Job? = null
     private var stopping = false
     private var starting = false
@@ -51,15 +55,7 @@ class SetServiceController(
     }
 
     init {
-        scope.launch {
-            SetStore.itemsFlow(context).collect { latest ->
-                if (disposed) return@collect
-                items.value = latest
-                itemsReady.complete(Unit)
-            }
-        }.invokeOnCompletion { cause ->
-            if (cause != null && !itemsReady.isCompleted) itemsReady.completeExceptionally(cause)
-        }
+        itemCollectionJob = collectItems()
         scope.launch {
             var previousReason: SetStopReason? = null
             runner.state.collect { state ->
@@ -69,6 +65,31 @@ class SetServiceController(
                     SetProgressFormatter.error(context, state)?.let(::showMessage)
                 }
                 previousReason = state.stopReason
+            }
+        }
+    }
+
+    private fun collectItems(): Job = scope.launch {
+        SetStore.itemsFlow(context).collect { latest ->
+            if (disposed) return@collect
+            items.value = latest
+            itemsReady.complete(Unit)
+        }
+    }.also { job ->
+        job.invokeOnCompletion { cause ->
+            if (cause != null && !itemsReady.isCompleted) itemsReady.completeExceptionally(cause)
+        }
+    }
+
+    private suspend fun refreshItemsForStart() {
+        try {
+            // A completed edit can precede its flowOn(IO) delivery. Retire queued old emissions first.
+            itemCollectionJob?.cancelAndJoin()
+            items.value = SetStore.itemsFlow(context).first()
+        } finally {
+            if (!disposed && scope.isActive) {
+                // A cancelled startup still needs normal live updates for the next attempt.
+                itemCollectionJob = collectItems()
             }
         }
     }
@@ -83,6 +104,7 @@ class SetServiceController(
             try {
                 awaitConfiguration()
                 itemsReady.await()
+                refreshItemsForStart()
                 currentCoroutineContext().ensureActive()
                 if (items.value.none { it.isExecutable }) {
                     showMessage(context.getString(R.string.set_empty_message))

@@ -28,6 +28,7 @@ class SetRunnerTest {
         index = index,
         delayMs = 1000L,
         actionType = if (drag) HighlightingPoint.ACTION_TYPE_DRAG else HighlightingPoint.ACTION_TYPE_TAP,
+        dragToX = if (drag) index + 100f else index.toFloat(),
     )
 
     private fun touch(id: String, vararg points: HighlightingPoint) =
@@ -47,7 +48,7 @@ class SetRunnerTest {
         options = options,
         nowMs = { testScheduler.currentTime },
         execute = execute ?: { point, label ->
-            val duration = if (point.actionType == HighlightingPoint.ACTION_TYPE_DRAG) point.dragDurationMs else 50L
+            val duration = if (point.isEffectiveDrag) point.dragDurationMs else 50L
             actions += Action(point.id, testScheduler.currentTime, label, duration)
             delay(duration)
             true
@@ -179,6 +180,28 @@ class SetRunnerTest {
     }
 
     @Test
+    fun coincidentAndNegligibleDragsUseTapTimingInsteadOfSkippingTheRun() = runTest {
+        val coincident = point("coincident", drag = true).copy(dragToX = 0f, dragToY = 10f)
+        val negligible = point("negligible", 1, drag = true).copy(dragToX = 3f, dragToY = 12f)
+        val reserved = SetItem.Reserved(
+            id = "r", name = "r", points = listOf(coincident, negligible),
+            reservation = ReservationConfig(1, 1, 1),
+        )
+        val items = MutableStateFlow<List<SetItem>>(listOf(reserved, wait("w")))
+        val actions = mutableListOf<Action>()
+        val runner = runner(items, actions, options = { SetGestureOptions(100L, 10_000L) })
+        runner.start()
+        runCurrent()
+        assertEquals("coincident", actions.single().id)
+        assertEquals(50L, actions.single().durationMs)
+        advance(150L)
+        assertEquals("negligible", actions.last().id)
+        assertEquals(150L, actions.last().atMs)
+        assertEquals(50L, actions.last().durationMs)
+        runner.stopAndJoin()
+    }
+
+    @Test
     fun cancelWaitsForDispatchedGestureAndNextStartResetsOffset() = runTest {
         val completion = CompletableDeferred<Unit>()
         val ids = mutableListOf<String>()
@@ -304,6 +327,30 @@ class SetRunnerTest {
         runCurrent()
         assertEquals("b", runner.state.value.currentItem?.id)
         assertEquals(300L, runner.state.value.remainingMs)
+        runner.stopAndJoin()
+    }
+
+    @Test
+    fun coalescedDeletionsWhilePausedContinueBelowTheUpdatedVacantSlotInSamePass() = runTest {
+        val a = wait("a")
+        val b = wait("b")
+        val c = wait("c", 1000L)
+        val d = wait("d", 1000L)
+        val items = MutableStateFlow<List<SetItem>>(listOf(a, b, c, d))
+        val runner = runner(items)
+        runner.start()
+        runCurrent()
+        advance(200L)
+        assertEquals("c", runner.state.value.currentItem?.id)
+        runner.pause()
+        items.value = listOf(b, c, d)
+        items.value = listOf(b, d)
+        runCurrent()
+        assertNull(runner.state.value.currentItem)
+        runner.resume()
+        runCurrent()
+        assertEquals("d", runner.state.value.currentItem?.id)
+        assertEquals(1L, runner.state.value.pass)
         runner.stopAndJoin()
     }
 

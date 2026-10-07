@@ -47,4 +47,21 @@ class SetCursorTest {
         cursor.observe(listOf(b, c))
         assertEquals(c, cursor.next(listOf(b, c)))
     }
+
+    @Test
+    fun coalescedDeletionBeforeAndAtCursorRetainsTheNextUnexecutedItem() {
+        val a = item("a")
+        val b = item("b")
+        val c = item("c")
+        val d = item("d")
+        val cursor = SetCursor()
+        cursor.first(listOf(a, b, c, d))
+        assertEquals(b, cursor.next(listOf(a, b, c, d)))
+        assertEquals(c, cursor.next(listOf(a, b, c, d)))
+        cursor.observe(listOf(b, d))
+        // Repeated observation must not shrink the vacant slot again.
+        cursor.observe(listOf(b, d))
+        assertEquals(d, cursor.next(listOf(b, d)))
+        assertNull(cursor.next(listOf(b, d)))
+    }
 }

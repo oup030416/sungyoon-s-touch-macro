@@ -83,6 +83,7 @@ internal class SetReservationPanelView(
     private val name = context.setText(item.name, 16f, true)
     private val progress = ReservationProgressView(context)
     private val inputs = ReservationInputsView(context)
+    private var hasLocalEdits = false
 
     init {
         showItemPath(item)
@@ -91,15 +92,22 @@ internal class SetReservationPanelView(
         body.addView(inputs, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(12) })
         addSaveStatus(centered = true)
         inputs.setValues(item.reservation)
-        inputs.setOnEdited { clearSaveStatus() }
-        inputs.setOnChanged(onValue)
+        inputs.setOnEdited {
+            hasLocalEdits = true
+            clearSaveStatus()
+        }
+        inputs.setOnChanged { config ->
+            hasLocalEdits = true
+            onValue(config)
+        }
         inputs.setOnRequestIme(requestIme)
     }
 
     fun updateItem(item: SetItem.Reserved) {
         showItemPath(item)
         name.text = item.name
-        inputs.setValues(item.reservation)
+        // A queued acknowledgement must not replace newer drafts after focus moves to another field.
+        if (!hasLocalEdits) inputs.setValues(item.reservation)
     }
 
     fun renderRuntime(state: SetRunState) {
@@ -134,6 +142,7 @@ internal class SetWaitPanelView(
     private val keyboard = OverlayImeController(this, requestIme)
     private val name = context.setText(item.name, 16f, true)
     private var settingValue = false
+    private var hasLocalEdits = false
     private var lastSentValue = item.durationMs
     private val edit = EditText(context).apply {
         setText(formatDuration(item.durationMs))
@@ -171,6 +180,7 @@ internal class SetWaitPanelView(
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
             override fun afterTextChanged(s: Editable?) {
                 if (settingValue) return
+                hasLocalEdits = true
                 clearSaveStatus()
                 val value = parseDuration(s?.toString()) ?: return
                 edit.error = null
@@ -201,7 +211,7 @@ internal class SetWaitPanelView(
     fun updateItem(item: SetItem.Wait) {
         showItemPath(item)
         name.text = item.name
-        if (!edit.isFocused && item.durationMs != lastSentValue) {
+        if (!hasLocalEdits && !edit.isFocused && item.durationMs != lastSentValue) {
             lastSentValue = item.durationMs
             settingValue = true
             edit.setText(formatDuration(item.durationMs))

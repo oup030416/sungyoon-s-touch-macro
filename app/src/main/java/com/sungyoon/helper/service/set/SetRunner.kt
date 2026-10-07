@@ -1,7 +1,6 @@
 package com.sungyoon.helper.service.set
 
 import com.sungyoon.helper.model.HighlightingPoint
-import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.SetItem
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -262,7 +261,7 @@ class SetRunner(
                 if (remaining <= 0L) break
                 val point = item.points[offset]
                 val prepared = prepare(point)
-                if (prepared.actionType == ACTION_TYPE_DRAG && prepared.dragDurationMs > remaining) {
+                if (prepared.isEffectiveDrag && prepared.dragDurationMs > remaining) {
                     if (!waitUntil(runEnd, item.id)) return
                     break
                 }
