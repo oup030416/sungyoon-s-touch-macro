@@ -10,6 +10,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.ProgressBar
 import android.widget.TextView
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.HighlightingPoint
@@ -24,14 +25,20 @@ class SetListPanelView(
     private val onSelect: (String) -> Unit,
     private val onEdit: (String) -> Unit,
     private val onAdd: () -> Unit,
-    private val onDelete: () -> Unit,
-    private val onDuplicate: () -> Unit,
-    private val onToggleRun: () -> Unit,
+    private val onDelete: (String) -> Unit,
+    private val onDuplicate: (String) -> Unit,
+    private val onStartOrResume: () -> Unit,
+    private val onCancel: () -> Unit,
     private val onMove: (String, Int) -> Unit
 ) : SetPanelView(context, context.getString(R.string.set_title), onBack) {
-    private val status = context.setText(context.getString(R.string.set_status_idle), 12.5f).apply {
-        setTextColor(Color.parseColor("#B8B8B8"))
-        setPadding(0, 0, 0, context.setDp(10))
+    private val progressBar = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
+        max = 100
+        progressTintList = ColorStateList.valueOf(Color.parseColor("#66D58A"))
+        progressBackgroundTintList = ColorStateList.valueOf(Color.parseColor("#3A3A3A"))
+    }
+    private val progressPercent = context.setText(context.getString(R.string.set_progress_percent, 0), 12.5f).apply {
+        gravity = Gravity.END
+        setTextColor(Color.parseColor("#D7D7D7"))
     }
     private val rowsContainer = LinearLayout(context).apply { orientation = VERTICAL }
     private val rowViews = linkedMapOf<String, LinearLayout>()
@@ -51,9 +58,8 @@ class SetListPanelView(
     private var selectedId: String? = null
     private var runtime = SetRunState()
     private var pendingEntries: List<SetItem>? = null
-    private val deleteButton = context.setAction(context.getString(R.string.preset_delete), Color.parseColor("#8E2430"), onDelete)
-    private val duplicateButton = context.setAction(context.getString(R.string.set_duplicate), onClick = onDuplicate)
-    private val startButton = context.setAction(context.getString(R.string.set_start), Color.parseColor("#2E7D32"), onToggleRun)
+    private val cancelButton = context.setAction(context.getString(R.string.set_cancel), onClick = onCancel)
+    private val startButton = context.setAction(context.getString(R.string.set_start), Color.parseColor("#2E7D32"), onStartOrResume)
     private var dragId: String? = null
     private var dragOrigin = 0
     private var dragTarget = 0
@@ -82,15 +88,25 @@ class SetListPanelView(
     }
 
     init {
-        body.addView(status)
+        body.addView(context.setText(context.getString(R.string.set_progress_title), 12.5f, true))
+        body.addView(LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(progressBar, LayoutParams(0, context.setDp(16), 1f))
+            addView(progressPercent, LayoutParams(context.setDp(48), LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = context.setDp(8)
+            })
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+            topMargin = context.setDp(4)
+            bottomMargin = context.setDp(10)
+        })
         body.addView(rowsContainer)
         body.addView(addControls,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(12) })
-        listOf(deleteButton, duplicateButton, startButton).forEachIndexed { index, button ->
-            footer.addView(button, LayoutParams(0, LayoutParams.WRAP_CONTENT, if (index == 2) 2f else 1f).apply {
-                leftMargin = if (index == 0) 0 else context.setDp(8)
-            })
-        }
+        footer.addView(cancelButton, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+            rightMargin = context.setDp(10)
+        })
+        footer.addView(startButton, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         setItems(emptyList(), null)
     }
 
@@ -150,7 +166,7 @@ class SetListPanelView(
         inlineMenuView?.let { menu ->
             menu.post {
                 if (menu.isAttachedToWindow) {
-                    // Reveal the submenu heading and first action without jumping past its parent.
+                    // Keep the expanded actions visible without scrolling past their parent card.
                     menu.requestRectangleOnScreen(Rect(0, 0, menu.width, minOf(menu.height, context.setDp(84))), true)
                 }
             }
@@ -161,10 +177,9 @@ class SetListPanelView(
 
     fun renderRuntime(state: SetRunState) {
         runtime = state
-        status.text = if (state.active) {
-            context.getString(R.string.set_status_position, state.pass, state.itemPosition, state.itemCount) +
-                "\n" + SetProgressFormatter.title(context, state) + " · " + SetProgressFormatter.detail(context, state)
-        } else SetProgressFormatter.error(context, state) ?: context.getString(R.string.set_status_idle)
+        val percentage = SetProgress.percent(state)
+        progressBar.progress = percentage
+        progressPercent.text = context.getString(R.string.set_progress_percent, percentage)
         syncDecorations()
     }
 
@@ -187,10 +202,14 @@ class SetListPanelView(
         val nameLine = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         nameLine.addView(context.setText(item.name, 17f, true), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         nameLine.addView(ImageButton(context).apply {
+            val expanded = inlineMenu?.itemId == item.id
             setImageResource(android.R.drawable.ic_menu_edit)
-            imageTintList = ColorStateList.valueOf(Color.WHITE)
-            background = PointerOverlayDrawables.circleRippleBg(Color.parseColor("#22FFFFFF"), Color.parseColor("#33FFFFFF"))
-            contentDescription = context.getString(R.string.set_edit_description, item.name)
+            isActivated = expanded
+            imageTintList = ColorStateList.valueOf(Color.parseColor(if (expanded) "#B8B8FF" else "#FFFFFF"))
+            background = PointerOverlayDrawables.circleRippleBg(
+                Color.parseColor(if (expanded) "#5B5CE6" else "#22FFFFFF"), Color.parseColor("#33FFFFFF"))
+            contentDescription = context.getString(
+                if (expanded) R.string.set_edit_close_description else R.string.set_edit_description, item.name)
             setOnClickListener { onEdit(item.id) }
         }, LayoutParams(context.setDp(38), context.setDp(38)).apply { leftMargin = context.setDp(6) })
         nameLine.addView(context.setText("≡", 26f, true).apply {
@@ -230,27 +249,57 @@ class SetListPanelView(
             visibility = View.GONE
         }
         addView(badge)
-        inlineMenu?.takeIf { it.itemId == item.id }?.let { menu -> addView(buildInlineMenu(menu)) }
+        inlineMenu?.takeIf { it.itemId == item.id }?.let { menu -> addView(buildInlineMenu(item, menu)) }
         rowViews[item.id] = this
         badges[item.id] = badge
     }
 
-    private fun buildInlineMenu(menu: InlineMenu): LinearLayout = LinearLayout(context).apply {
-        orientation = HORIZONTAL
-        isBaselineAligned = false
+    private fun buildInlineMenu(item: SetItem, menu: InlineMenu): LinearLayout = LinearLayout(context).apply {
+        orientation = VERTICAL
         setPadding(0, context.setDp(12), 0, 0)
-        menu.options.forEach { (label, action) ->
-            addView(context.setAction(label, Color.parseColor("#3A3A3A"), action).apply {
-                textSize = 12.5f
-                setPadding(context.setDp(4), context.setDp(10), context.setDp(4), context.setDp(10))
-            }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply { rightMargin = context.setDp(6) })
+        fun actionRow(options: List<Pair<String, () -> Unit>>, includeItemActions: Boolean): LinearLayout =
+            LinearLayout(context).apply {
+                orientation = HORIZONTAL
+                isBaselineAligned = false
+                options.forEachIndexed { index, (label, action) ->
+                    addView(context.setAction(label, Color.parseColor("#3A3A3A"), action).apply {
+                        textSize = 12.5f
+                        setPadding(context.setDp(4), context.setDp(10), context.setDp(4), context.setDp(10))
+                    }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f).apply {
+                        if (includeItemActions || index < options.lastIndex) rightMargin = context.setDp(6)
+                    })
+                }
+                if (includeItemActions) {
+                    addView(itemActionIcon(item, R.drawable.ic_set_duplicate, R.string.set_duplicate_description,
+                        Color.parseColor("#5B5CE6")) { onDuplicate(item.id) },
+                        LayoutParams(context.setDp(40), LayoutParams.MATCH_PARENT).apply { rightMargin = context.setDp(6) })
+                    addView(itemActionIcon(item, R.drawable.ic_set_delete, R.string.set_delete_description,
+                        Color.parseColor("#8E2430")) { onDelete(item.id) },
+                        LayoutParams(context.setDp(40), LayoutParams.MATCH_PARENT))
+                }
+            }
+        if (item.type == SetItemType.RESERVED) {
+            addView(actionRow(menu.options.take(2), includeItemActions = false),
+                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+            addView(actionRow(menu.options.drop(2), includeItemActions = true),
+                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(6) })
+        } else {
+            addView(actionRow(menu.options, includeItemActions = true),
+                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         }
-        addView(context.setAction(context.getString(R.string.set_item_close), Color.parseColor("#3A3A3A"), menu.onClose).apply {
-            contentDescription = context.getString(R.string.set_item_close_description)
-            setPadding(context.setDp(4), context.setDp(10), context.setDp(4), context.setDp(10))
-        }, LayoutParams(context.setDp(40), LayoutParams.MATCH_PARENT))
         inlineMenuView = this
     }
+
+    private fun itemActionIcon(item: SetItem, drawable: Int, description: Int, color: Int, action: () -> Unit): ImageButton =
+        ImageButton(context).apply {
+            setImageResource(drawable)
+            imageTintList = ColorStateList.valueOf(Color.WHITE)
+            background = PointerOverlayDrawables.roundedRippleBg(color, Color.parseColor("#40FFFFFF"), context::setDp, 14)
+            contentDescription = context.getString(description, item.name)
+            minimumHeight = context.setDp(46)
+            setPadding(context.setDp(8), context.setDp(10), context.setDp(8), context.setDp(10))
+            setOnClickListener { action() }
+        }
 
     private fun syncDecorations() {
         rowViews.forEach { (id, row) ->
@@ -278,16 +327,14 @@ class SetListPanelView(
             }
             badges[id]?.apply {
                 visibility = if (active) VISIBLE else GONE
-                text = context.getString(if (runtime.paused) R.string.set_paused_item else R.string.set_active_item)
+                text = context.getString(R.string.set_active_item)
             }
         }
-        val selectionValid = entries.any { it.id == selectedId }
-        listOf(deleteButton, duplicateButton).forEach {
-            it.isEnabled = selectionValid
-            it.alpha = if (selectionValid) 1f else 0.45f
-        }
-        startButton.text = context.getString(if (runtime.active) R.string.set_cancel else R.string.set_start)
-        startButton.isEnabled = true
+        cancelButton.isEnabled = runtime.active && !runtime.stopping
+        cancelButton.alpha = if (cancelButton.isEnabled) 1f else 0.45f
+        startButton.text = context.getString(if (runtime.active) R.string.set_resume else R.string.set_start)
+        startButton.isEnabled = !runtime.stopping
+        startButton.alpha = if (startButton.isEnabled) 1f else 0.45f
     }
 
     private fun beginDrag(id: String, rawY: Float) {

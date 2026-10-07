@@ -131,7 +131,9 @@ class PointerOverlayReservationPanelView(
             paused -> R.string.reservation_resume
             else -> R.string.reservation_running
         })
-        startButton.isEnabled = !executionBlocked
+        // The guarded listener explains why execution is unavailable instead of swallowing taps.
+        startButton.isEnabled = true
+        startButton.contentDescription = if (executionBlocked) context.getString(R.string.set_blocked_message) else startButton.text
         startButton.alpha = when {
             executionBlocked -> 0.45f
             active && !paused -> 0.85f

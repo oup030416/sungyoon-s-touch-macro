@@ -348,8 +348,14 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     fun setOtherExecutionBlocked(blocked: Boolean) {
         otherExecutionBlocked = blocked
-        controls.playToggleBtn.isEnabled = !blocked
+        // Keep the guarded click reachable so a blocked action can explain its owner.
+        controls.playToggleBtn.isEnabled = true
         controls.playToggleBtn.alpha = if (blocked) 0.45f else 1f
+        controls.playToggleBtn.contentDescription = context.getString(
+            if (blocked) R.string.set_blocked_message
+            else if (controls.playToggleBtn.text == "■") R.string.pointer_play_desc_stop
+            else R.string.pointer_play_desc_start
+        )
         controls.hintText.text = context.getString(
             if (blocked) R.string.set_blocked_message else R.string.pointer_control_hint
         )

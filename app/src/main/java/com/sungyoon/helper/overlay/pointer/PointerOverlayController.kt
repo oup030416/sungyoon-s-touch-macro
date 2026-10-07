@@ -65,6 +65,7 @@ class PointerOverlayController(private val app: Context) {
     private var collectStartFallbackJob: Job? = null
     private var showRequestJob: Job? = null
     private var closeRequestJob: Job? = null
+    private var closeRequestGeneration = 0L
     private var setEditor: SetEditorCoordinator? = null
     private val pointerRepository = PointerEditRepository(app)
     private val editTarget = MutableStateFlow<PointerEditTarget>(PointerEditTarget.Global)
@@ -513,6 +514,7 @@ class PointerOverlayController(private val app: Context) {
         showRequestJob?.cancel()
         showRequestJob = null
         if (!resumeSet) {
+            closeRequestGeneration++
             closeRequestJob?.cancel()
             closeRequestJob = null
             closing = false
@@ -522,18 +524,23 @@ class PointerOverlayController(private val app: Context) {
         if (closing) return
         if (resumeSet && added) {
             closing = true
+            val requestGeneration = ++closeRequestGeneration
             val editor = setEditor
+            val sourceRoot = root
             closeRequestJob = scope.launch {
                 try {
                     editor?.flushWrites()
                     flushWrites()
                     flushSharedOptions()
+                    if (requestGeneration != closeRequestGeneration || root !== sourceRoot) return@launch
                     val shouldResume = managerPausedSet && SetRuntime.active
                     removeWindow()
                     if (shouldResume) sendSetCommand(SungyoonHelperService.ACTION_RESUME_SET)
                 } finally {
-                    closing = false
-                    closeRequestJob = null
+                    if (requestGeneration == closeRequestGeneration) {
+                        closing = false
+                        closeRequestJob = null
+                    }
                 }
             }
         } else {
@@ -696,13 +703,20 @@ class PointerOverlayController(private val app: Context) {
                 )
             }
 
-            override fun toggleSetRun() { onSetRunToggle() }
+            override fun startOrResumeSet() { onSetStartOrResume() }
+            override fun cancelSetRun() {
+                // Invalidate navigation while allowing the finite flush to persist all shared options.
+                closeRequestGeneration++
+                closeRequestJob = null
+                closing = false
+                sendSetCommand(SungyoonHelperService.ACTION_CANCEL_SET)
+            }
             override fun requestIme(show: Boolean) { setOverlayFocusableForIme(show) }
         })
 
-    private fun onSetRunToggle() {
+    private fun onSetStartOrResume() {
         if (SetRuntime.active) {
-            sendSetCommand(SungyoonHelperService.ACTION_CANCEL_SET)
+            hide(resumeSet = true)
             return
         }
         if (startingSet) return

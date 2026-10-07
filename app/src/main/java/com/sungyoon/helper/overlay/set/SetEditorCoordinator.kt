@@ -28,7 +28,8 @@ interface SetEditorHost {
     fun openItemPresets(onBack: () -> Unit)
     fun renameItem(item: SetItem, onName: (String) -> Unit)
     fun confirmDelete(item: SetItem, onConfirm: () -> Unit)
-    fun toggleSetRun()
+    fun startOrResumeSet()
+    fun cancelSetRun()
     fun requestIme(show: Boolean)
 }
 
@@ -71,9 +72,10 @@ class SetEditorCoordinator(
             onSelect = { selectedId = it },
             onEdit = ::showMenu,
             onAdd = ::showAdd,
-            onDelete = ::deleteSelected,
-            onDuplicate = ::duplicateSelected,
-            onToggleRun = host::toggleSetRun,
+            onDelete = ::deleteItem,
+            onDuplicate = ::duplicateItem,
+            onStartOrResume = host::startOrResumeSet,
+            onCancel = host::cancelSetRun,
             onMove = { id, target -> write { SetStore.moveItem(appContext, id, target) } }
         )
     }
@@ -213,8 +215,8 @@ class SetEditorCoordinator(
             requestIme = host::requestIme))
     }
 
-    private fun deleteSelected() {
-        val item = selectedId?.let(::findItem) ?: return
+    private fun deleteItem(id: String) {
+        val item = findItem(id) ?: return
         host.confirmDelete(item) {
             write {
                 SetStore.deleteItem(appContext, item.id)
@@ -223,12 +225,14 @@ class SetEditorCoordinator(
         }
     }
 
-    private fun duplicateSelected() {
-        val id = selectedId ?: return
+    private fun duplicateItem(id: String) {
+        if (findItem(id) == null) return
         write {
             val duplicate = SetStore.duplicateItem(appContext, id) ?: return@write
             selectedId = duplicate.id
-            if (isOpen && screen == Screen.ListScreen) listPanel.setSelectedItem(duplicate.id)
+            if (isOpen && (screen == Screen.ListScreen || screen is Screen.Menu)) {
+                listPanel.setSelectedItem(duplicate.id)
+            }
         }
     }
 

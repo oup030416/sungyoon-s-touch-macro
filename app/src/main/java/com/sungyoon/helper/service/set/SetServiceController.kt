@@ -1,7 +1,6 @@
 package com.sungyoon.helper.service.set
 
 import android.content.Context
-import android.graphics.Rect
 import android.os.SystemClock
 import android.util.Log
 import com.sungyoon.helper.R
@@ -9,7 +8,7 @@ import com.sungyoon.helper.data.SetStore
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.SetItem
 import com.sungyoon.helper.overlay.set.SetProgressFormatter
-import com.sungyoon.helper.overlay.set.SetProgressOverlayController
+import com.sungyoon.helper.overlay.set.SetMessageOverlayController
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -32,13 +31,12 @@ class SetServiceController(
     private val settleOrdinaryWork: suspend () -> Unit,
     execute: suspend (HighlightingPoint, String) -> Boolean,
     private val onRuntimeChanged: () -> Unit,
-    anchorBounds: () -> Rect?,
     private val managerVisible: () -> Boolean,
 ) {
     private val scope = CoroutineScope(parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job]))
     private val items = MutableStateFlow<List<SetItem>>(emptyList())
     private val itemsReady = CompletableDeferred<Unit>()
-    private val progress = SetProgressOverlayController(context, anchorBounds, managerVisible)
+    private val messages = SetMessageOverlayController(context)
     private val runner = SetRunner(scope, items, options, SystemClock::elapsedRealtime, execute)
     private var startJob: Job? = null
     private var stopping = false
@@ -158,14 +156,12 @@ class SetServiceController(
         return true
     }
 
-    fun refreshProgressPosition() = progress.refreshPosition()
-
     fun dispose() {
         if (disposed) return
         disposed = true
         runner.dispose()
         scope.cancel()
-        progress.dispose()
+        messages.dispose()
         SetRuntime.update(SetRunState())
     }
 
@@ -173,11 +169,10 @@ class SetServiceController(
         if (disposed) return
         SetRuntime.update(state)
         onRuntimeChanged()
-        progress.update(state)
     }
 
     private fun showMessage(message: String) {
-        if (!disposed) progress.showMessage(message)
+        if (!disposed) messages.showMessage(message)
     }
 
     private companion object { const val TAG = "SetServiceController" }

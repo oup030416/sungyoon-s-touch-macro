@@ -304,8 +304,7 @@ class SungyoonHelperService : AccessibilityService() {
                     TouchPointerOverlay.toggle(this)
                     floatingToggle?.invalidate()
                 },
-                isOn = { TouchPointerOverlay.isShowing() },
-                onPositionChanged = { setController?.refreshProgressPosition() }
+                isOn = { TouchPointerOverlay.isShowing() }
             ).also { it.show() }
         } else {
             if (!ft.isShowing()) ft.show()
@@ -366,7 +365,6 @@ class SungyoonHelperService : AccessibilityService() {
             settleOrdinaryWork = { settleOrdinaryWork() },
             execute = { point, label -> executePointAction(point, label, usePointDragDuration = true) },
             onRuntimeChanged = ::syncTouchAnimationVisibility,
-            anchorBounds = { floatingToggle?.anchorBounds() },
             managerVisible = TouchPointerOverlay::isShowing,
         )
     }
