@@ -103,7 +103,7 @@ class PointerOverlayPresetPanelView(
             minimumWidth = 0
             isSingleLine = true
             setPadding(dp(4), dp(12), dp(4), dp(12))
-            layoutParams = LayoutParams(dp(40), LayoutParams.WRAP_CONTENT)
+            layoutParams = LayoutParams(dp(80), LayoutParams.WRAP_CONTENT)
         }
 
         updateBtn = actionButton(
