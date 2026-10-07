@@ -25,7 +25,7 @@ class SetListPanelView(
     context: Context,
     onBack: () -> Unit,
     private val onSelect: (String) -> Unit,
-    private val onEdit: (String) -> Unit,
+    private val onToggleMenu: (String) -> Unit,
     private val onAdd: () -> Unit,
     private val onDelete: (String) -> Unit,
     private val onDuplicate: (String) -> Unit,
@@ -251,23 +251,12 @@ class SetListPanelView(
         val expanded = inlineMenu?.itemId == item.id
         val verticalPadding = context.setDp(if (expanded) 12 else 8)
         setPadding(context.setDp(14), verticalPadding, context.setDp(14), verticalPadding)
-        setOnClickListener {
-            selectedId = item.id
-            onSelect(item.id)
-            syncDecorations()
-        }
+        isActivated = expanded
+        contentDescription = context.getString(
+            if (expanded) R.string.set_edit_close_description else R.string.set_edit_description, item.name)
+        setOnClickListener { onToggleMenu(item.id) }
         val nameLine = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         nameLine.addView(context.setText(item.name, 17f, true), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        nameLine.addView(ImageButton(context).apply {
-            setImageResource(android.R.drawable.ic_menu_edit)
-            isActivated = expanded
-            imageTintList = ColorStateList.valueOf(Color.parseColor(if (expanded) "#B8B8FF" else "#FFFFFF"))
-            background = PointerOverlayDrawables.circleRippleBg(
-                Color.parseColor(if (expanded) "#5B5CE6" else "#22FFFFFF"), Color.parseColor("#33FFFFFF"))
-            contentDescription = context.getString(
-                if (expanded) R.string.set_edit_close_description else R.string.set_edit_description, item.name)
-            setOnClickListener { onEdit(item.id) }
-        }, LayoutParams(context.setDp(38), context.setDp(38)).apply { leftMargin = context.setDp(6) })
         nameLine.addView(context.setText("≡", 26f, true).apply {
             gravity = Gravity.CENTER
             contentDescription = context.getString(R.string.set_reorder_description, item.name)
@@ -353,23 +342,24 @@ class SetListPanelView(
 
     private fun syncDecorations() {
         rowViews.forEach { (id, row) ->
-            val selected = id == selectedId
+            val expanded = inlineMenu?.itemId == id
             val active = runtime.active && runtime.currentItem?.id == id
-            val decoration = selected to active
+            val decoration = expanded to active
             // Progress ticks do not need to recreate every card background.
             if (decorations[id] != decoration) {
                 decorations[id] = decoration
-                row.isSelected = selected
+                row.isSelected = expanded
+                row.isActivated = expanded
                 row.background = GradientDrawable().apply {
                     cornerRadius = context.setDp(16).toFloat()
                     setColor(Color.parseColor(when {
                         active -> "#153B26"
-                        selected -> "#332E7DFF"
+                        expanded -> "#332E7DFF"
                         else -> "#1B1B1B"
                     }))
-                    setStroke(context.setDp(if (selected || active) 2 else 1), Color.parseColor(when {
+                    setStroke(context.setDp(if (expanded || active) 2 else 1), Color.parseColor(when {
                         active -> "#66D58A"
-                        selected -> "#7E8BFF"
+                        expanded -> "#7E8BFF"
                         else -> "#2C2C2C"
                     }))
                 }

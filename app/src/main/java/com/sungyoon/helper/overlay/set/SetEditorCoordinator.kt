@@ -71,7 +71,7 @@ class SetEditorCoordinator(
         SetListPanelView(context,
             onBack = ::close,
             onSelect = { selectedId = it },
-            onEdit = ::showMenu,
+            onToggleMenu = ::showMenu,
             onAdd = ::showAdd,
             onDelete = ::deleteItem,
             onDuplicate = ::duplicateItem,
