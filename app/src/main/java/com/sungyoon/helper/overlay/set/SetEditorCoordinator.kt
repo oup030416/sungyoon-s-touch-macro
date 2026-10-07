@@ -133,6 +133,7 @@ class SetEditorCoordinator(
     private fun showList() {
         if (!isOpen || disposed) return
         screen = Screen.ListScreen
+        listPanel.clearInlineMenu()
         listPanel.setItems(items, selectedId)
         listPanel.renderRuntime(runtime)
         display(listPanel)
@@ -140,20 +141,21 @@ class SetEditorCoordinator(
     }
 
     private fun showAdd() {
+        if (screen == Screen.Add) return showList()
         rememberListScroll()
         screen = Screen.Add
-        display(SetMenuPanelView(context, context.getString(R.string.set_add_title), ::showList,
+        listPanel.showInlineMenu(null,
             SetItemType.entries.map { type -> SetListPanelView.typeLabel(context, type) to {
                 write {
                     val added = SetStore.addItem(appContext, type)
                     selectedId = added.id
                     if (isOpen && !disposed) showList()
                 }
-            } }
-        ))
+            } }, ::showList)
     }
 
     private fun showMenu(id: String) {
+        if (screen == Screen.Menu(id)) return showList()
         val item = findItem(id) ?: return showList()
         rememberListScroll()
         selectedId = id
@@ -170,7 +172,11 @@ class SetEditorCoordinator(
             }
             is SetItem.Wait -> options += context.getString(R.string.set_time) to { showWait(id) }
         }
-        display(SetMenuPanelView(context, item.name, ::showList, options))
+        // Keep the parent list mounted while its item actions are expanded.
+        listPanel.setItems(items, selectedId)
+        listPanel.renderRuntime(runtime)
+        display(listPanel)
+        listPanel.showInlineMenu(id, options, ::showList)
     }
 
     private fun showPointers(id: String) {
@@ -239,29 +245,29 @@ class SetEditorCoordinator(
             return
         }
         when (screen) {
-            Screen.ListScreen -> listPanel.setItems(items, selectedId)
-            is Screen.Menu -> visibleView?.setTitle(item!!.name)
+            Screen.ListScreen, Screen.Add, is Screen.Menu -> listPanel.setItems(items, selectedId)
             is Screen.Pointers -> (visibleView as? SetPointerPanelView)?.updateItem(item!!)
             is Screen.Reservation -> (visibleView as? SetReservationPanelView)?.updateItem(item as SetItem.Reserved)
             is Screen.Wait -> (visibleView as? SetWaitPanelView)?.updateItem(item as SetItem.Wait)
-            Screen.Add, is Screen.Presets -> Unit
+            is Screen.Presets -> Unit
         }
     }
 
     private fun renderRuntime() {
         when (screen) {
-            Screen.ListScreen -> listPanel.renderRuntime(runtime)
+            Screen.ListScreen, Screen.Add, is Screen.Menu -> listPanel.renderRuntime(runtime)
             is Screen.Reservation -> (visibleView as? SetReservationPanelView)?.renderRuntime(runtime)
             else -> Unit
         }
     }
 
     private fun display(panel: SetPanelView, showPointers: Boolean = false, targetId: String? = null) {
+        val alreadyVisible = visibleView === panel
         closeIme()
         visibleView = panel
         panel.setMaxViewportHeight(viewportHeight)
         host.setPointerEditTarget(targetId)
-        host.showSetContent(panel, showPointers)
+        if (!alreadyVisible) host.showSetContent(panel, showPointers)
     }
 
     private fun rememberListScroll() {

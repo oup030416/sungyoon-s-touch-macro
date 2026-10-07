@@ -20,20 +20,8 @@ import com.sungyoon.helper.overlay.OverlayImeController
 import com.sungyoon.helper.service.set.SetPhase
 import com.sungyoon.helper.service.set.SetRunState
 
-internal class SetMenuPanelView(
-    context: Context,
-    title: String,
-    onBack: () -> Unit,
-    options: List<Pair<String, () -> Unit>>
-) : SetPanelView(context, title, onBack) {
-    init {
-        options.forEachIndexed { index, (label, action) ->
-            body.addView(context.setAction(label, onClick = action), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-                topMargin = if (index == 0) 0 else context.setDp(10)
-            })
-        }
-    }
-}
+private fun SetPanelView.showItemPath(item: SetItem) =
+    setParentPath(context.getString(R.string.set_item_path, context.getString(R.string.set_title), item.name))
 
 internal class SetPointerPanelView(
     context: Context,
@@ -71,7 +59,10 @@ internal class SetPointerPanelView(
         updateItem(item)
     }
 
-    fun updateItem(item: SetItem) { summary.text = SetListPanelView.itemSummary(context, item) }
+    fun updateItem(item: SetItem) {
+        showItemPath(item)
+        summary.text = SetListPanelView.itemSummary(context, item)
+    }
 }
 
 internal class SetReservationPanelView(
@@ -87,6 +78,7 @@ internal class SetReservationPanelView(
     private val inputs = ReservationInputsView(context)
 
     init {
+        showItemPath(item)
         body.addView(name)
         body.addView(progress, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(8) })
         body.addView(inputs, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(12) })
@@ -101,6 +93,7 @@ internal class SetReservationPanelView(
     }
 
     fun updateItem(item: SetItem.Reserved) {
+        showItemPath(item)
         name.text = item.name
         inputs.setValues(item.reservation)
     }
@@ -158,6 +151,7 @@ internal class SetWaitPanelView(
     }
 
     init {
+        showItemPath(item)
         body.addView(name)
         body.addView(context.setText(context.getString(R.string.set_wait_label), 14f, true).apply {
             setPadding(0, context.setDp(16), 0, context.setDp(8))
@@ -203,6 +197,7 @@ internal class SetWaitPanelView(
     }
 
     fun updateItem(item: SetItem.Wait) {
+        showItemPath(item)
         name.text = item.name
         if (!edit.isFocused && item.durationMs != lastSentValue) {
             lastSentValue = item.durationMs

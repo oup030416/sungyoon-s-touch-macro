@@ -4,8 +4,10 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.Typeface
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -56,7 +58,10 @@ open class SetPanelView(
     backLabel: String = context.getString(R.string.set_back)
 ) : LinearLayout(context), SetPanelSurface {
     private var onBackClick = onBack
-    protected val body = LinearLayout(context).apply { orientation = VERTICAL }
+    protected val body = LinearLayout(context).apply {
+        orientation = VERTICAL
+        setPadding(0, 0, 0, context.setDp(12))
+    }
     protected val footer = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -66,11 +71,22 @@ open class SetPanelView(
         addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
     private val titleView = context.setText(title, 17f, true)
+    private val parentPath = context.setText("", 11.5f).apply {
+        setTextColor(Color.parseColor("#B8B8B8"))
+        maxLines = 2
+        ellipsize = TextUtils.TruncateAt.END
+        setPadding(0, 0, 0, context.setDp(4))
+        visibility = View.GONE
+    }
     private val backButton = context.setAction(backLabel, Color.parseColor("#3A3A3A")) { onBackClick() }
     private val header = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        addView(titleView, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+        addView(LinearLayout(context).apply {
+            orientation = VERTICAL
+            addView(parentPath)
+            addView(titleView)
+        }, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         addView(backButton,
             LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { leftMargin = context.setDp(8) })
     }
@@ -95,7 +111,7 @@ open class SetPanelView(
 
     init {
         orientation = VERTICAL
-        setPadding(context.setDp(12), context.setDp(12), context.setDp(12), context.setDp(12))
+        setPadding(context.setDp(12), context.setDp(12), context.setDp(12), context.setDp(20))
         background = PointerOverlayDrawables.reservationCardBg(context::setDp)
         elevation = context.setDp(8).toFloat()
         clipToOutline = true
@@ -115,6 +131,11 @@ open class SetPanelView(
     }
 
     fun setOnBackClick(block: () -> Unit) { onBackClick = block }
+
+    fun setParentPath(path: String) {
+        parentPath.text = path
+        parentPath.visibility = if (path.isBlank()) View.GONE else View.VISIBLE
+    }
 
     override fun setMaxViewportHeight(px: Int) {
         if (maxViewportHeight == px.coerceAtLeast(0)) return
@@ -158,9 +179,19 @@ open class SetPanelView(
             ?: (resources.displayMetrics.widthPixels - context.setDp(48)).coerceAtLeast(1)
         val widthSpec = MeasureSpec.makeMeasureSpec(widthHint, MeasureSpec.EXACTLY)
         val heightSpec = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED)
+        // Footer children are added after this base view is initialized.
+        // Keep the real margin and the reserved height in sync on every layout.
+        val footerMargin = if (footer.childCount > 0) context.setDp(12) else 0
+        val footerPadding = if (footer.childCount > 0) context.setDp(4) else 0
+        footer.setPadding(0, footerPadding, 0, footerPadding)
+        val footerParams = footer.layoutParams as LayoutParams
+        if (footerParams.topMargin != footerMargin) {
+            footerParams.topMargin = footerMargin
+            footer.layoutParams = footerParams
+        }
         header.measure(widthSpec, heightSpec)
         footer.measure(widthSpec, heightSpec)
-        val footerHeight = if (footer.childCount > 0) footer.measuredHeight + context.setDp(10) else 0
+        val footerHeight = if (footer.childCount > 0) footer.measuredHeight + footerMargin else 0
         val fixed = paddingTop + paddingBottom + header.measuredHeight + context.setDp(10) + footerHeight
         val shouldCompact = maxViewportHeight - fixed < context.setDp(100)
         if (compact != shouldCompact) configureScrollMode(shouldCompact)
@@ -185,7 +216,7 @@ open class SetPanelView(
         compact = useCompact
         header.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT)
         footer.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-            topMargin = if (footer.childCount > 0) context.setDp(10) else 0
+            topMargin = if (footer.childCount > 0) context.setDp(12) else 0
         }
         if (compact) {
             compactBody.setPadding(0, 0, 0, context.setDp(28))

@@ -3,6 +3,7 @@ package com.sungyoon.helper.overlay.set
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
+import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
@@ -35,6 +36,17 @@ class SetListPanelView(
     private val rowsContainer = LinearLayout(context).apply { orientation = VERTICAL }
     private val rowViews = linkedMapOf<String, LinearLayout>()
     private val badges = linkedMapOf<String, TextView>()
+    private val typeLabels = linkedMapOf<String, TextView>()
+    private val decorations = linkedMapOf<String, Pair<Boolean, Boolean>>()
+    private data class InlineMenu(
+        val itemId: String?,
+        val options: List<Pair<String, () -> Unit>>,
+        val onClose: () -> Unit
+    )
+    private var inlineMenu: InlineMenu? = null
+    private var inlineMenuView: View? = null
+    private val addMenuContainer = LinearLayout(context).apply { orientation = VERTICAL }
+    private val addButton = context.setAction(context.getString(R.string.set_add_item), Color.parseColor("#4A4A4A"), onAdd)
     private var entries = emptyList<SetItem>()
     private var selectedId: String? = null
     private var runtime = SetRunState()
@@ -72,8 +84,9 @@ class SetListPanelView(
     init {
         body.addView(status)
         body.addView(rowsContainer)
-        body.addView(context.setAction(context.getString(R.string.set_add_item), Color.parseColor("#4A4A4A"), onAdd),
+        body.addView(addButton,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(12) })
+        body.addView(addMenuContainer)
         listOf(deleteButton, duplicateButton, startButton).forEachIndexed { index, button ->
             footer.addView(button, LayoutParams(0, LayoutParams.WRAP_CONTENT, if (index == 2) 2f else 1f).apply {
                 leftMargin = if (index == 0) 0 else context.setDp(8)
@@ -93,6 +106,9 @@ class SetListPanelView(
         rowsContainer.removeAllViews()
         rowViews.clear()
         badges.clear()
+        typeLabels.clear()
+        decorations.clear()
+        inlineMenuView = null
         if (items.isEmpty()) {
             rowsContainer.addView(context.setText(context.getString(R.string.set_list_empty), 13.5f).apply {
                 gravity = Gravity.CENTER
@@ -106,6 +122,12 @@ class SetListPanelView(
                 })
             }
         }
+        addMenuContainer.removeAllViews()
+        val addMenu = inlineMenu?.takeIf { it.itemId == null }
+        addButton.text = context.getString(if (addMenu != null) R.string.set_add_collapse else R.string.set_add_item)
+        if (addMenu != null) {
+            addMenuContainer.addView(buildInlineMenu(addMenu), LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        }
         syncDecorations()
         restoreBodyScroll(scroll)
     }
@@ -114,6 +136,21 @@ class SetListPanelView(
         selectedId = id
         syncDecorations()
     }
+
+    fun showInlineMenu(itemId: String?, options: List<Pair<String, () -> Unit>>, onClose: () -> Unit) {
+        inlineMenu = InlineMenu(itemId, options, onClose)
+        setItems(entries, selectedId)
+        inlineMenuView?.let { menu ->
+            menu.post {
+                if (menu.isAttachedToWindow) {
+                    // Reveal the submenu heading and first action without jumping past its parent.
+                    menu.requestRectangleOnScreen(Rect(0, 0, menu.width, minOf(menu.height, context.setDp(84))), true)
+                }
+            }
+        }
+    }
+
+    fun clearInlineMenu() { inlineMenu = null }
 
     fun renderRuntime(state: SetRunState) {
         runtime = state
@@ -170,10 +207,12 @@ class SetListPanelView(
             }
         }, LayoutParams(context.setDp(40), context.setDp(44)).apply { leftMargin = context.setDp(6) })
         addView(nameLine)
-        addView(context.setText(typeLabel(context, item.type), 13f, true).apply {
+        val typeLabel = context.setText(typeLabel(context, item.type), 13f, true).apply {
             setTextColor(Color.parseColor("#B8B8FF"))
             setPadding(0, context.setDp(4), 0, 0)
-        })
+        }
+        addView(typeLabel)
+        typeLabels[item.id] = typeLabel
         addView(context.setText(itemSummary(context, item), 13.5f).apply {
             setTextColor(Color.parseColor("#D7D7D7"))
             setPadding(0, context.setDp(4), 0, 0)
@@ -184,19 +223,54 @@ class SetListPanelView(
             visibility = View.GONE
         }
         addView(badge)
+        inlineMenu?.takeIf { it.itemId == item.id }?.let { menu -> addView(buildInlineMenu(menu)) }
         rowViews[item.id] = this
         badges[item.id] = badge
+    }
+
+    private fun buildInlineMenu(menu: InlineMenu): LinearLayout = LinearLayout(context).apply {
+        orientation = VERTICAL
+        setPadding(0, context.setDp(12), 0, 0)
+        addView(View(context).apply { setBackgroundColor(Color.parseColor("#445A5A5A")) },
+            LayoutParams(LayoutParams.MATCH_PARENT, context.setDp(1)))
+        addView(LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(context.setText(context.getString(if (menu.itemId == null) R.string.set_add_title else R.string.set_item_menu), 13f, true),
+                LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+            addView(context.setAction(context.getString(R.string.set_menu_collapse), Color.parseColor("#3A3A3A"), menu.onClose))
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(8) })
+        menu.options.forEach { (label, action) ->
+            addView(context.setAction(label, Color.parseColor("#3A3A3A"), action),
+                LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(8) })
+        }
+        inlineMenuView = this
     }
 
     private fun syncDecorations() {
         rowViews.forEach { (id, row) ->
             val selected = id == selectedId
-            row.background = GradientDrawable().apply {
-                cornerRadius = context.setDp(16).toFloat()
-                setColor(if (selected) Color.parseColor("#332E7DFF") else Color.parseColor("#1B1B1B"))
-                setStroke(context.setDp(if (selected) 2 else 1), if (selected) Color.parseColor("#7E8BFF") else Color.parseColor("#2C2C2C"))
-            }
             val active = runtime.active && runtime.currentItem?.id == id
+            val decoration = selected to active
+            // Progress ticks do not need to recreate every card background.
+            if (decorations[id] != decoration) {
+                decorations[id] = decoration
+                row.isSelected = selected
+                row.background = GradientDrawable().apply {
+                    cornerRadius = context.setDp(16).toFloat()
+                    setColor(Color.parseColor(when {
+                        active -> "#153B26"
+                        selected -> "#332E7DFF"
+                        else -> "#1B1B1B"
+                    }))
+                    setStroke(context.setDp(if (selected || active) 2 else 1), Color.parseColor(when {
+                        active -> "#66D58A"
+                        selected -> "#7E8BFF"
+                        else -> "#2C2C2C"
+                    }))
+                }
+                typeLabels[id]?.setTextColor(Color.parseColor(if (active) "#A4E7BB" else "#B8B8FF"))
+            }
             badges[id]?.apply {
                 visibility = if (active) VISIBLE else GONE
                 text = context.getString(if (runtime.paused) R.string.set_paused_item else R.string.set_active_item)
