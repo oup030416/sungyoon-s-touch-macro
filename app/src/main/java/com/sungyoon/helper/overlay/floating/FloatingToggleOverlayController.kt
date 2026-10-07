@@ -4,18 +4,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Color
 import android.graphics.PixelFormat
-import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
-import android.widget.LinearLayout
-import android.widget.TextView
-import com.sungyoon.helper.R
 import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
@@ -24,31 +19,18 @@ class FloatingToggleOverlayController(
     private val context: Context,
     private val overlayType: Int,
     private val onToggle: () -> Unit,
-    private val isOn: () -> Boolean,
-    private val onPlaybackToggle: (Boolean) -> Unit = {},
-    private val onHidden: () -> Unit = {},
-    private val onConfigurationChanged: () -> Unit = {},
-    private val onPhysicalTouch: () -> Unit = {}
+    private val isOn: () -> Boolean
 ) {
     private val wm = context.getSystemService(Context.WINDOW_SERVICE) as WindowManager
 
     private var view: FloatingToggleView? = null
-    private var container: LinearLayout? = null
-    private var playbackButton: TextView? = null
     private var added = false
-    private var playbackRunning = false
-    private var playbackEnabled = false
-    private var pendingPlaybackTarget: Boolean? = null
 
     private var trashView: TrashDropView? = null
     private var trashAdded = false
 
     private val density = context.resources.displayMetrics.density
     private val sizePx = (56f * density).roundToInt()
-    private val playbackButtonHeightPx = (36f * density).roundToInt()
-    private val playbackButtonGapPx = (4f * density).roundToInt()
-    private val playbackExtraHeightPx get() = playbackButtonHeightPx + playbackButtonGapPx
-    private val windowHeightPx get() = sizePx + playbackExtraHeightPx
     private val trashSizePx = (120f * density).roundToInt()
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -69,10 +51,11 @@ class FloatingToggleOverlayController(
     private var trashCenterX = 0f
     private var trashCenterY = 0f
 
-    // Track the previous bounds to keep the icon near its relative position on rotation.
+    // ✅ 회전 전/후 비율 기반 재매핑용
     private var lastScreenW = 0
     private var lastScreenH = 0
 
+    // ✅ 회전 이벤트 수신
     private var configReceiver: BroadcastReceiver? = null
     private var configReceiverRegistered = false
 
@@ -81,15 +64,13 @@ class FloatingToggleOverlayController(
         sizePx,
         overlayType,
         WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                WindowManager.LayoutParams.FLAG_SPLIT_TOUCH or
-                WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
         PixelFormat.TRANSLUCENT
     ).apply {
         gravity = Gravity.TOP or Gravity.START
         x = edgePaddingPx
-        y = (180f * density).roundToInt() - playbackExtraHeightPx
+        y = (180f * density).roundToInt()
     }
 
     private val trashLp = WindowManager.LayoutParams(
@@ -109,102 +90,10 @@ class FloatingToggleOverlayController(
 
     fun isShowing(): Boolean = added
 
-    fun setPlaybackState(running: Boolean, enabled: Boolean) {
-        playbackRunning = running
-        playbackEnabled = enabled
-        updatePlaybackButton()
-    }
-
     fun show() {
         if (added) return
 
-        val group = object : LinearLayout(context) {
-            override fun dispatchTouchEvent(event: MotionEvent): Boolean {
-                if (event.actionMasked == MotionEvent.ACTION_DOWN) pendingPlaybackTarget = null
-                // Android 16 QPR2 can cancel injected contacts without a result callback.
-                // Observe real DOWNs without intercepting touches outside this small window.
-                if ((event.actionMasked == MotionEvent.ACTION_OUTSIDE ||
-                            event.actionMasked == MotionEvent.ACTION_DOWN) &&
-                    event.device?.isVirtual == false) {
-                    // Preserve the user's intended toggle before cancellation changes its state.
-                    if (playbackRunning && event.actionMasked == MotionEvent.ACTION_DOWN &&
-                        event.x >= 0f && event.x < width && event.y >= 0f && event.y < playbackButtonHeightPx)
-                        pendingPlaybackTarget = false
-                    onPhysicalTouch()
-                }
-                return super.dispatchTouchEvent(event)
-            }
-        }.apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER_HORIZONTAL
-        }
-        val button = TextView(context).apply {
-            gravity = Gravity.CENTER
-            textSize = 12f
-            setSingleLine(true)
-            androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
-                this, 9, 12, 1, android.util.TypedValue.COMPLEX_UNIT_SP)
-            setTextColor(Color.WHITE)
-            isClickable = true
-            isFocusable = true
-            setOnClickListener {
-                if (playbackEnabled) {
-                    val target = pendingPlaybackTarget ?: !playbackRunning
-                    pendingPlaybackTarget = null
-                    onPlaybackToggle(target)
-                }
-            }
-        }
-        var toggleDownX = 0f
-        var toggleDownY = 0f
-        var toggleMoved = false
-        button.setOnTouchListener { target, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    // A physical touch can cancel the injected gesture before ACTION_UP.
-                    if (pendingPlaybackTarget == null) pendingPlaybackTarget = !playbackRunning
-                    toggleDownX = event.rawX
-                    toggleDownY = event.rawY
-                    toggleMoved = false
-                    target.isPressed = true
-                    true
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (abs(event.rawX - toggleDownX) > touchSlop || abs(event.rawY - toggleDownY) > touchSlop) {
-                        toggleMoved = true
-                        target.isPressed = false
-                    }
-                    true
-                }
-                MotionEvent.ACTION_UP -> {
-                    target.isPressed = false
-                    if (!toggleMoved && event.x >= 0 && event.x <= target.width &&
-                        event.y >= 0 && event.y <= target.height
-                    ) target.performClick()
-                    pendingPlaybackTarget = null
-                    true
-                }
-                MotionEvent.ACTION_CANCEL -> {
-                    target.isPressed = false
-                    pendingPlaybackTarget = null
-                    true
-                }
-                else -> false
-            }
-        }
-        group.addView(button, LinearLayout.LayoutParams(sizePx, playbackButtonHeightPx).apply {
-            bottomMargin = playbackButtonGapPx
-        })
-        playbackButton = button
-        updatePlaybackButton()
-
-        val v = FloatingToggleView(context) { isOn() }.apply {
-            setOnClickListener {
-                onToggle()
-                invalidate()
-            }
-        }
-        group.addView(v, LinearLayout.LayoutParams(sizePx, sizePx))
+        val v = FloatingToggleView(context) { isOn() }
         v.setOnTouchListener { _, ev ->
             when (ev.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -215,6 +104,7 @@ class FloatingToggleOverlayController(
                     dragScreenW = sw
                     dragScreenH = sh
 
+                    // ✅ 드래그 시작 시점의 화면 크기도 저장
                     lastScreenW = sw
                     lastScreenH = sh
 
@@ -243,24 +133,26 @@ class FloatingToggleOverlayController(
                     )
                     lp.y = desiredY.coerceIn(
                         edgePaddingPx,
-                        (dragScreenH - windowHeightPx - edgePaddingPx).coerceAtLeast(edgePaddingPx)
+                        (dragScreenH - sizePx - edgePaddingPx).coerceAtLeast(edgePaddingPx)
                     )
 
-                    updateContainerLayout()
+                    try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
                     true
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     if (!moved) {
-                        if (ev.actionMasked == MotionEvent.ACTION_UP) v.performClick()
+                        onToggle()
+                        v.invalidate()
                         true
                     } else {
-                        val dropped = ev.actionMasked == MotionEvent.ACTION_UP && isDroppedOnTrash()
+                        val dropped = isDroppedOnTrash()
                         setDraggingState(false)
                         if (dropped) {
                             hide()
                         } else {
-                            snapToEdge()
+                            snapToEdge(v)
+                            // ✅ 드래그 종료 후 화면 크기 갱신
                             val (sw, sh) = getScreenSizePx()
                             lastScreenW = sw
                             lastScreenH = sh
@@ -273,20 +165,17 @@ class FloatingToggleOverlayController(
             }
         }
 
-        lp.height = windowHeightPx
+        // ✅ show 시점에 현재 화면 안으로 보정
         val (sw, sh) = getScreenSizePx()
         lastScreenW = sw
         lastScreenH = sh
         clampIntoScreen(sw, sh)
         try {
-            wm.addView(group, lp)
+            wm.addView(v, lp)
             view = v
-            container = group
             added = true
         } catch (_: Throwable) {
             view = null
-            container = null
-            playbackButton = null
             added = false
             return
         }
@@ -299,48 +188,16 @@ class FloatingToggleOverlayController(
         unregisterConfigReceiver()
 
         if (!added) return
-        container?.let {
+        view?.let {
             try { wm.removeView(it) } catch (_: Throwable) {}
         }
         view = null
-        container = null
-        playbackButton = null
-        pendingPlaybackTarget = null
         added = false
         dragging = false
-        if (trashAdded) {
-            trashView?.let { try { wm.removeView(it) } catch (_: Throwable) {} }
-            trashView = null
-            trashAdded = false
-        }
-        onHidden()
     }
 
     fun invalidate() {
         view?.invalidate()
-    }
-
-    private fun updatePlaybackButton() {
-        playbackButton?.apply {
-            visibility = View.VISIBLE
-            isEnabled = playbackEnabled
-            alpha = if (playbackEnabled) 1f else 0.45f
-            text = context.getString(if (playbackRunning) R.string.playback_toggle_on else R.string.playback_toggle_off)
-            contentDescription = context.getString(
-                if (playbackRunning) R.string.playback_toggle_on_description
-                else R.string.playback_toggle_off_description
-            )
-            background = GradientDrawable().apply {
-                cornerRadius = 12f * density
-                setColor(Color.parseColor(if (playbackRunning) "#256D48" else "#CC222238"))
-                setStroke((density * 1.5f).roundToInt(), Color.parseColor(if (playbackRunning) "#73E6A5" else "#88889B"))
-            }
-        }
-    }
-
-    private fun updateContainerLayout() {
-        if (!added) return
-        container?.let { try { wm.updateViewLayout(it, lp) } catch (_: Throwable) {} }
     }
 
     private fun setDraggingState(on: Boolean) {
@@ -415,23 +272,24 @@ class FloatingToggleOverlayController(
 
     private fun isDroppedOnTrash(): Boolean {
         val btnCx = lp.x + sizePx / 2f
-        val btnCy = lp.y + playbackExtraHeightPx + sizePx / 2f
+        val btnCy = lp.y + sizePx / 2f
         val radius = (trashSizePx / 2f) * 0.9f
         return hypot(btnCx - trashCenterX, btnCy - trashCenterY) <= radius
     }
 
-    private fun snapToEdge() {
+    private fun snapToEdge(v: FloatingToggleView) {
         val (screenW, screenH) = getScreenSizePx()
         val left = edgePaddingPx
         val right = (screenW - sizePx - edgePaddingPx).coerceAtLeast(left)
         lp.x = if (lp.x < screenW / 2) left else right
 
+        // ✅ y도 화면 안으로 강제 보정 (회전 직후/키보드/컷아웃 등)
         lp.y = lp.y.coerceIn(
             edgePaddingPx,
-            (screenH - windowHeightPx - edgePaddingPx).coerceAtLeast(edgePaddingPx)
+            (screenH - sizePx - edgePaddingPx).coerceAtLeast(edgePaddingPx)
         )
 
-        updateContainerLayout()
+        try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
 
         lastScreenW = screenW
         lastScreenH = screenH
@@ -444,17 +302,18 @@ class FloatingToggleOverlayController(
         )
         lp.y = lp.y.coerceIn(
             edgePaddingPx,
-            (screenH - windowHeightPx - edgePaddingPx).coerceAtLeast(edgePaddingPx)
+            (screenH - sizePx - edgePaddingPx).coerceAtLeast(edgePaddingPx)
         )
     }
 
+    // ✅ 회전 시: "이전 화면에서의 상대 위치"를 새 화면으로 재매핑 후 clamp
     private fun remapPositionOnRotation(newW: Int, newH: Int) {
         val oldW = lastScreenW
         val oldH = lastScreenH
 
         if (oldW > 0 && oldH > 0) {
             val oldCx = lp.x + sizePx / 2f
-            val oldCy = lp.y + playbackExtraHeightPx + sizePx / 2f
+            val oldCy = lp.y + sizePx / 2f
 
             val rx = (oldCx / oldW.toFloat()).coerceIn(0f, 1f)
             val ry = (oldCy / oldH.toFloat()).coerceIn(0f, 1f)
@@ -463,7 +322,7 @@ class FloatingToggleOverlayController(
             val newCy = ry * newH
 
             lp.x = (newCx - sizePx / 2f).roundToInt()
-            lp.y = (newCy - playbackExtraHeightPx - sizePx / 2f).roundToInt()
+            lp.y = (newCy - sizePx / 2f).roundToInt()
         }
 
         clampIntoScreen(newW, newH)
@@ -479,17 +338,18 @@ class FloatingToggleOverlayController(
                 if (!added) return
                 if (intent?.action != Intent.ACTION_CONFIGURATION_CHANGED) return
 
-                onConfigurationChanged()
+                val v = view ?: return
                 val (sw, sh) = getScreenSizePx()
-                setDraggingState(false)
-                moved = true
-                pendingPlaybackTarget = null
-                dragScreenW = sw
-                dragScreenH = sh
+
+                // ✅ 드래그 중이면 화면/좌표가 흔들릴 수 있어 종료 시점에 보정
+                if (dragging) {
+                    dragScreenW = sw
+                    dragScreenH = sh
+                    return
+                }
+
                 remapPositionOnRotation(sw, sh)
-                downX = lp.x
-                downY = lp.y
-                updateContainerLayout()
+                try { wm.updateViewLayout(v, lp) } catch (_: Throwable) {}
             }
         }
 

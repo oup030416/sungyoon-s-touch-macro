@@ -7,9 +7,9 @@ plugins {
 
 import java.util.Properties
 
-val appVersionName = "1.1"
-val devVersionName = "1.19"
-val devVersionCode = 15
+val appVersionName = "1.09"
+val devVersionName = "1.18"
+val devVersionCode = 14
 
 val localProperties = Properties().apply {
     val file = rootProject.file("local.properties")
@@ -35,7 +35,6 @@ android {
 
     defaultConfig {
         applicationId = "com.sungyoon.helper"
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         minSdk = 24
         targetSdk = 36
         // App version is user-facing and only changes on explicit request.
@@ -106,6 +105,4 @@ dependencies {
 
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")
-    androidTestImplementation("androidx.test:runner:1.7.0")
-    androidTestImplementation("junit:junit:4.13.2")
 }

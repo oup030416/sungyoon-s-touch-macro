@@ -64,9 +64,9 @@
     <string name="preset_delete">삭제</string>
     <string name="preset_update">업데이트</string>
     <string name="preset_load">프리셋 불러오기</string>
-    <string name="preset_add_current">프리셋 추가</string>
+    <string name="preset_add_current">+ 현재 터치 위치를 프리셋에 추가</string>
     <string name="preset_empty">저장된 프리셋이 없습니다.</string>
-    <string name="preset_count">터치: %1$d개 · 드래그: %2$d개 · 홀드: %3$d개</string>
+    <string name="preset_count">터치: %1$d개 드래그: %2$d개</string>
     <string name="preset_date">%1$s</string>
     <string name="preset_name_hint">프리셋 이름</string>
     <string name="preset_add_saved">프리셋을 저장했습니다.</string>
@@ -133,19 +133,4 @@
     <string name="update_install_file_missing">다운로드한 업데이트 파일을 찾을 수 없습니다.</string>
     <string name="update_install_permission_required">업데이트를 설치하려면 알 수 없는 앱 설치 권한을 허용하세요.</string>
     <string name="update_install_permission_open_failed">설치 권한 설정 화면을 열지 못했습니다.</string>
-
-    <!-- Hold mode and automatic preset saving. -->
-    <string name="preset_previous_touches">이전 터치 기록</string>
-    <string name="preset_in_use">사용중</string>
-    <string name="preset_storage_error">기록을 읽거나 저장하지 못했습니다. 기존 기록을 보존하기 위해 작업을 중단했습니다. 창을 다시 열어 주세요.</string>
-    <string name="hold_pointer_label">H%1$d</string>
-    <string name="playback_toggle_on">On</string>
-    <string name="playback_toggle_off">Off</string>
-    <string name="playback_toggle_on_description">전체 실행 중. 눌러서 정지하거나 예약 일시정지</string>
-    <string name="playback_toggle_off_description">전체 실행 꺼짐. 눌러서 시작하거나 예약 재개</string>
-    <string name="hold_requires_android_8">터치 홀드는 Android 8 이상에서 사용할 수 있습니다.</string>
-    <string name="hold_gesture_failed">홀드가 취소되거나 실행되지 못했습니다.</string>
-    <string name="reservation_stopped_for_preset">프리셋 전환으로 예약 실행을 종료했습니다.</string>
-    <string name="pointer_add_hold">홀드 포인터 추가</string>
-    <string name="hold_pointer_limit">홀드 포인터는 최대 %1$d개까지 사용할 수 있습니다.</string>
 </resources>

@@ -19,7 +19,6 @@ import android.widget.ScrollView
 import androidx.core.view.children
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.HighlightingPoint
-import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_HOLD
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.PresetEntry
 import com.sungyoon.helper.util.PointerSizeSpec
@@ -46,7 +45,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         dp(PointerSizeSpec.radiusDpForLevel(PointerSizeSpec.DEFAULT_LEVEL)).toFloat()
     private var pointerSizeLevel: Int = PointerSizeSpec.DEFAULT_LEVEL
     private var pointerDrawRadiusPx: Float = dragHandleDrawRadiusPx
-    private val defaultTapPointerDrawRadiusPx = 10f * density
 
     private var panelVisible: Boolean = true
     private val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
@@ -56,8 +54,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     private var suppressPointerSizeListener = false
     private var onRandomTouchRadiusChanged: ((Int) -> Unit)? = null
     private var suppressRandomRadiusListener = false
-    private var suppressSecondsListeners = false
-    private var editingReady = false
 
     private var onDeletePointClick: ((String) -> Unit)? = null
 
@@ -266,7 +262,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         setupMoveStickHandleDrag()
 
         deletePointerBtn.setOnClickListener {
-            if (!editingReady) return@setOnClickListener
             val id = selectedId ?: return@setOnClickListener
             clearSelection()
             onDeletePointClick?.invoke(id)
@@ -390,6 +385,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     fun setOnPresetDeleteClick(block: (String) -> Unit) {
         presetPanel.setOnDeleteClick(block)
+    }
+
+    fun setOnPresetUpdateClick(block: (String) -> Unit) {
+        presetPanel.setOnUpdateClick(block)
     }
 
     fun setOnPresetLoadClick(block: (String) -> Unit) {
@@ -552,9 +551,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         }
 
         // ✅ 재생성 없이 기존 포인터들의 draw radius만 갱신
-        for (point in lastPoints) {
-            val radius = if (point.actionType == ACTION_TYPE_HOLD) defaultTapPointerDrawRadiusPx else pointerDrawRadiusPx
-            views[point.id]?.setDrawRadiusPx(radius)
+        for (v in views.values) {
+            v.setDrawRadiusPx(pointerDrawRadiusPx)
         }
         for (v in dragEndViews.values) {
             v.setDrawRadiusPx(pointerDrawRadiusPx)
@@ -890,10 +888,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.addDragBtn.setOnClickListener { block() }
     }
 
-    fun setOnAddHoldClick(block: () -> Unit) {
-        controls.addHoldBtn.setOnClickListener { block() }
-    }
-
     fun setOnClearAllClick(block: () -> Unit) {
         controls.clearAllBtn.setOnClickListener { block() }
     }
@@ -914,21 +908,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         controls.touchAnimToggleBtn.setOnClickListener { block() }
     }
 
-    fun setEditingState(ready: Boolean) {
-        editingReady = ready
-        val normalEnabled = ready
-        listOf<View>(controls.addBtn, controls.addDragBtn, controls.addHoldBtn, controls.clearAllBtn,
-            controls.playToggleBtn, controls.reserveBtn, controls.repeatToggleBtn,
-            controls.touchAnimToggleBtn, controls.intervalEdit, controls.dragDurationEdit,
-            controls.randomRadiusSeek, deletePointerBtn).forEach {
-            it.isEnabled = normalEnabled
-            it.alpha = if (normalEnabled) 1f else 0.4f
-        }
-        moveStickHandle.isEnabled = ready
-        presetPanel.setEditingReady(ready)
-        controls.hintText.setText(R.string.pointer_control_hint)
-    }
-
     fun setSequenceRunning(running: Boolean) {
         controls.playToggleBtn.text = if (running) "■" else "▶"
         val fill = if (running) PLAY_RUNNING_FILL_COLOR else PLAY_STANDBY_FILL_COLOR
@@ -943,14 +922,11 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     }
 
     fun setTapIntervalSeconds(seconds: Float) {
-        suppressSecondsListeners = true
-        try {
-            val s = String.format(Locale.US, "%.1f", seconds)
-            if (controls.intervalEdit.text?.toString() != s) {
-                controls.intervalEdit.setText(s)
-                controls.intervalEdit.setSelection(s.length)
-            }
-        } finally { suppressSecondsListeners = false }
+        val s = String.format(Locale.US, "%.1f", seconds)
+        if (controls.intervalEdit.text?.toString() != s) {
+            controls.intervalEdit.setText(s)
+            controls.intervalEdit.setSelection(s.length)
+        }
     }
 
     fun setOnTapIntervalChanged(block: (Float) -> Unit) {
@@ -958,7 +934,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun afterTextChanged(s: Editable?) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                if (suppressSecondsListeners || !editingReady) return
                 val raw = s?.toString().orEmpty()
                 if (raw.isBlank() || raw.endsWith(".")) return
                 val v = raw.toFloatOrNull() ?: return
@@ -975,14 +950,11 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
     }
 
     fun setDragDurationSeconds(seconds: Float) {
-        suppressSecondsListeners = true
-        try {
-            val s = String.format(Locale.US, "%.1f", seconds)
-            if (controls.dragDurationEdit.text?.toString() != s) {
-                controls.dragDurationEdit.setText(s)
-                controls.dragDurationEdit.setSelection(s.length)
-            }
-        } finally { suppressSecondsListeners = false }
+        val s = String.format(Locale.US, "%.1f", seconds)
+        if (controls.dragDurationEdit.text?.toString() != s) {
+            controls.dragDurationEdit.setText(s)
+            controls.dragDurationEdit.setSelection(s.length)
+        }
     }
 
     fun setOnDragDurationChanged(block: (Float) -> Unit) {
@@ -990,7 +962,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
             override fun afterTextChanged(s: Editable?) {}
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                if (suppressSecondsListeners || !editingReady) return
                 val raw = s?.toString().orEmpty()
                 if (raw.isBlank() || raw.endsWith(".")) return
                 val v = raw.toFloatOrNull() ?: return
@@ -1006,13 +977,14 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         return raw.toFloatOrNull()
     }
 
-    private fun tapPointerDrawRadiusPx(): Float =
-        if (randomTouchRadiusDp <= 0) defaultTapPointerDrawRadiusPx else 0f
+    private fun tapPointerRadiusDp(): Int = if (randomTouchRadiusDp <= 0) 10 else 0
+
+    private fun tapPointerDrawRadiusPx(): Float = tapPointerRadiusDp() * density
 
     private fun updateAllTapPointerRadii() {
         val tapRadiusPx = tapPointerDrawRadiusPx()
         for (point in lastPoints) {
-            if (point.actionType != ACTION_TYPE_DRAG && point.actionType != ACTION_TYPE_HOLD) {
+            if (point.actionType != ACTION_TYPE_DRAG) {
                 views[point.id]?.setDrawRadiusPx(tapRadiusPx)
             }
         }
@@ -1135,7 +1107,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 var dragging = false
 
                 setOnTouchListener { _, ev ->
-                    if (!editingReady) return@setOnTouchListener true
                     when (ev.actionMasked) {
                         MotionEvent.ACTION_DOWN -> {
                             downRawX = ev.rawX
@@ -1205,11 +1176,10 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         for (p in points) {
             val startView = ensureHandleView(p.id, Endpoint.START)
-            val startRadius = when (p.actionType) {
-                ACTION_TYPE_DRAG -> dragHandleDrawRadiusPx
-                // Holds keep the fixed marker of a tap with no random radius.
-                ACTION_TYPE_HOLD -> defaultTapPointerDrawRadiusPx
-                else -> tapPointerDrawRadiusPx()
+            val startRadius = if (p.actionType == ACTION_TYPE_DRAG) {
+                dragHandleDrawRadiusPx
+            } else {
+                tapPointerDrawRadiusPx()
             }
             startView.setDrawRadiusPx(startRadius)
             startView.setLabel(labelProvider(p.id, Endpoint.START))
@@ -1353,7 +1323,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private fun refreshRandomRadiusViews() {
         val tapIds = lastPoints.asSequence()
-            .filter { it.actionType != ACTION_TYPE_DRAG && it.actionType != ACTION_TYPE_HOLD }
+            .filter { it.actionType != ACTION_TYPE_DRAG }
             .map { it.id }
             .toHashSet()
 
@@ -1366,7 +1336,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         if (randomTouchRadiusDp <= 0) return
 
         for (point in lastPoints) {
-            if (point.actionType == ACTION_TYPE_DRAG || point.actionType == ACTION_TYPE_HOLD) {
+            if (point.actionType == ACTION_TYPE_DRAG) {
                 removeRandomRadiusForPoint(point.id)
             } else {
                 updateRandomRadiusForPoint(point.id)
@@ -1384,7 +1354,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
             removeRandomRadiusForPoint(pointId)
             return
         }
-        if (point.actionType == ACTION_TYPE_DRAG || point.actionType == ACTION_TYPE_HOLD) {
+        if (point.actionType == ACTION_TYPE_DRAG) {
             removeRandomRadiusForPoint(pointId)
             return
         }
@@ -1495,7 +1465,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
     private fun setupMoveStickHandleDrag() {
         moveStickHandle.setOnTouchListener { _, ev ->
-            if (!editingReady) return@setOnTouchListener true
             val id = selectedId ?: return@setOnTouchListener true
             val endpoint = selectedEndpoint
             val pv = selectedPointerView() ?: return@setOnTouchListener true
@@ -1741,18 +1710,17 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                 moveStickHandle.animate().alpha(1f).setDuration(80L).start()
             }
 
-            val deleteAlpha = if (deletePointerBtn.isEnabled) 1f else 0.4f
             if (deletePointerBtn.visibility != View.VISIBLE) {
                 deletePointerBtn.visibility = View.VISIBLE
                 deletePointerBtn.alpha = 0f
                 deletePointerBtn.scaleX = 0.92f
                 deletePointerBtn.scaleY = 0.92f
                 deletePointerBtn.animate()
-                    .alpha(deleteAlpha).scaleX(1f).scaleY(1f)
+                    .alpha(1f).scaleX(1f).scaleY(1f)
                     .setDuration(110L)
                     .start()
-            } else if (deletePointerBtn.alpha != deleteAlpha) {
-                deletePointerBtn.animate().alpha(deleteAlpha).setDuration(80L).start()
+            } else if (deletePointerBtn.alpha < 1f) {
+                deletePointerBtn.animate().alpha(1f).setDuration(80L).start()
             }
         } else {
             if (moveStickLine.visibility != View.VISIBLE ||

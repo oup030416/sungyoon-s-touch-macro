@@ -17,7 +17,6 @@ import android.widget.TextView
 import android.view.ViewGroup
 import com.sungyoon.helper.R
 import com.sungyoon.helper.model.PresetEntry
-import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_HOLD
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -40,11 +39,13 @@ class PointerOverlayPresetPanelView(
     private var onCloseClick: (() -> Unit)? = null
     private var onAddCurrentClick: (() -> Unit)? = null
     private var onDeleteClick: ((String) -> Unit)? = null
+    private var onUpdateClick: ((String) -> Unit)? = null
     private var onLoadClick: ((String) -> Unit)? = null
     private var onRenameClick: ((PresetEntry) -> Unit)? = null
 
     private val deleteBtn: Button
-    private var editingReady = false
+    private val updateBtn: Button
+    private val loadBtn: Button
     private lateinit var headerRowView: View
     private lateinit var bodyContentView: LinearLayout
     private lateinit var bodyScrollView: ScrollView
@@ -98,7 +99,31 @@ class PointerOverlayPresetPanelView(
             layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
         }
 
+        updateBtn = actionButton(
+            text = context.getString(R.string.preset_update),
+            fillColor = Color.parseColor("#5B5CE6")
+        ) {
+            selectedPresetId?.let { onUpdateClick?.invoke(it) }
+        }.apply {
+            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(10)
+            }
+        }
+
+        loadBtn = actionButton(
+            text = context.getString(R.string.preset_load),
+            fillColor = Color.parseColor("#5B5CE6")
+        ) {
+            selectedPresetId?.let { onLoadClick?.invoke(it) }
+        }.apply {
+            layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 2f).apply {
+                leftMargin = dp(10)
+            }
+        }
+
         (footerRowView as LinearLayout).addView(deleteBtn)
+        (footerRowView as LinearLayout).addView(updateBtn)
+        (footerRowView as LinearLayout).addView(loadBtn)
         rebuildLayout(compact = false)
         syncActionButtons()
         addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> post { updateAdaptiveLayoutMode() } }
@@ -116,6 +141,10 @@ class PointerOverlayPresetPanelView(
         onDeleteClick = block
     }
 
+    fun setOnUpdateClick(block: (String) -> Unit) {
+        onUpdateClick = block
+    }
+
     fun setOnLoadClick(block: (String) -> Unit) {
         onLoadClick = block
     }
@@ -125,7 +154,7 @@ class PointerOverlayPresetPanelView(
     }
 
     fun setPresets(entries: List<PresetEntry>) {
-        presets = entries.sortedWith(compareByDescending<PresetEntry> { it.createdAtEpochMs })
+        presets = entries.sortedByDescending { it.createdAtEpochMs }
         if (selectedPresetId != null && presets.none { it.id == selectedPresetId }) {
             selectedPresetId = null
         }
@@ -244,8 +273,7 @@ class PointerOverlayPresetPanelView(
     private fun buildPresetItem(preset: PresetEntry): View {
         val selected = preset.id == selectedPresetId
         val dragCount = preset.points.count { it.actionType == ACTION_TYPE_DRAG }
-        val holdCount = preset.points.count { it.actionType == ACTION_TYPE_HOLD }
-        val tapCount = preset.points.size - dragCount - holdCount
+        val tapCount = preset.points.size - dragCount
         return LinearLayout(context).apply {
             orientation = VERTICAL
             setPadding(dp(14), dp(14), dp(14), dp(14))
@@ -256,7 +284,8 @@ class PointerOverlayPresetPanelView(
                 setStroke(dp(if (selected) 2 else 1), if (selected) Color.parseColor("#7E8BFF") else Color.parseColor("#2C2C2C"))
             }
             setOnClickListener {
-                if (editingReady && preset.id != selectedPresetId) onLoadClick?.invoke(preset.id)
+                selectedPresetId = preset.id
+                renderList()
             }
 
             addView(
@@ -272,13 +301,6 @@ class PointerOverlayPresetPanelView(
                             layoutParams = LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f)
                         }
                     )
-                    if (selected) addView(TextView(context).apply {
-                        text = context.getString(R.string.preset_in_use)
-                        setTextColor(Color.parseColor("#AAB5FF"))
-                        setPadding(dp(8), dp(4), dp(8), dp(4))
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
-                        typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    })
                     addView(
                         ImageButton(context).apply {
                             setImageResource(android.R.drawable.ic_menu_edit)
@@ -295,7 +317,7 @@ class PointerOverlayPresetPanelView(
             )
             addView(
                 TextView(context).apply {
-                    text = context.getString(R.string.preset_count, tapCount, dragCount, holdCount)
+                    text = context.getString(R.string.preset_count, tapCount, dragCount)
                     setTextColor(Color.parseColor("#D7D7D7"))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
                     typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -305,7 +327,8 @@ class PointerOverlayPresetPanelView(
             addView(
                 TextView(context).apply {
                     text = context.getString(
-                        R.string.preset_date, dateFormat.format(Date(preset.createdAtEpochMs))
+                        R.string.preset_date,
+                        dateFormat.format(Date(preset.createdAtEpochMs))
                     )
                     setTextColor(Color.parseColor("#A8A8A8"))
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
@@ -315,17 +338,14 @@ class PointerOverlayPresetPanelView(
         }
     }
 
-    fun setEditingReady(ready: Boolean) {
-        editingReady = ready
-        syncActionButtons()
-    }
-
     private fun syncActionButtons() {
-        val enabled = editingReady && selectedPresetId != null
+        val enabled = selectedPresetId != null
         deleteBtn.isEnabled = enabled
         deleteBtn.alpha = if (enabled) 1f else 0.45f
-        addCurrentBtn.isEnabled = editingReady
-        addCurrentBtn.alpha = if (addCurrentBtn.isEnabled) 1f else 0.45f
+        updateBtn.isEnabled = enabled
+        updateBtn.alpha = if (enabled) 1f else 0.45f
+        loadBtn.isEnabled = enabled
+        loadBtn.alpha = if (enabled) 1f else 0.45f
     }
 
     private fun actionButton(

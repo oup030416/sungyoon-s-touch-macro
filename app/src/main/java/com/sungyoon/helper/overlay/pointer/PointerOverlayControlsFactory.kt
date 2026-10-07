@@ -27,7 +27,6 @@ data class PointerOverlayControlsViews(
     val clearAllBtn: Button,
     val addBtn: Button,
     val addDragBtn: Button,
-    val addHoldBtn: Button,
     val presetListBtn: Button,
     val repeatToggleBtn: Button,
     val playToggleBtn: Button,
@@ -317,7 +316,9 @@ object PointerOverlayControlsFactory {
             text = context.getString(R.string.pointer_add),
             fillColor = Color.parseColor("#5B5CE6")
         ).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                leftMargin = dp(8)
+            }
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         }
 
@@ -327,16 +328,6 @@ object PointerOverlayControlsFactory {
         ).apply {
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 leftMargin = dp(8)
-            }
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
-        }
-
-        val addHoldBtn = actionButton(
-            text = context.getString(R.string.pointer_add_hold),
-            fillColor = Color.parseColor("#5B5CE6")
-        ).apply {
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = dp(8)
             }
             setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
         }
@@ -420,6 +411,7 @@ object PointerOverlayControlsFactory {
 
         row1.addView(presetListBtn)
         row1.addView(touchAnimToggleBtn)
+        row2.addView(clearAllBtn)
         row2.addView(addBtn)
         row2.addView(addDragBtn)
         row3.addView(reserveBtn)
@@ -427,15 +419,6 @@ object PointerOverlayControlsFactory {
 
         actionsCol.addView(row1)
         actionsCol.addView(row2)
-        val holdRow = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
-            gravity = Gravity.CENTER_VERTICAL
-            addView(addHoldBtn)
-            addView(clearAllBtn)
-        }
-        actionsCol.addView(holdRow)
         actionsCol.addView(row3)
 
         controlPanel.addView(headerRow)
@@ -450,7 +433,6 @@ object PointerOverlayControlsFactory {
             clearAllBtn = clearAllBtn,
             addBtn = addBtn,
             addDragBtn = addDragBtn,
-            addHoldBtn = addHoldBtn,
             presetListBtn = presetListBtn,
             repeatToggleBtn = repeatToggleBtn,
             playToggleBtn = playToggleBtn,
