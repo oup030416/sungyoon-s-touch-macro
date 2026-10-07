@@ -40,6 +40,10 @@ class SetListPanelView(
         gravity = Gravity.END
         setTextColor(Color.parseColor("#D7D7D7"))
     }
+    private val elapsedTime = context.setText(context.getString(R.string.set_elapsed_time, 0L, 0L), 12.5f).apply {
+        gravity = Gravity.END
+        setTextColor(Color.parseColor("#D7D7D7"))
+    }
     private val rowsContainer = LinearLayout(context).apply { orientation = VERTICAL }
     private val rowViews = linkedMapOf<String, LinearLayout>()
     private val badges = linkedMapOf<String, TextView>()
@@ -88,7 +92,15 @@ class SetListPanelView(
     }
 
     init {
-        body.addView(context.setText(context.getString(R.string.set_progress_title), 12.5f, true))
+        body.addView(LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(context.setText(context.getString(R.string.set_progress_title), 12.5f, true),
+                LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
+            addView(elapsedTime, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = context.setDp(8)
+            })
+        }, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         body.addView(LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -178,6 +190,8 @@ class SetListPanelView(
     fun renderRuntime(state: SetRunState) {
         runtime = state
         val percentage = SetProgress.percent(state)
+        val seconds = (if (state.active) state.elapsedMs else 0L).coerceAtLeast(0L) / 1000L
+        elapsedTime.text = context.getString(R.string.set_elapsed_time, seconds / 60L, seconds % 60L)
         progressBar.progress = percentage
         progressPercent.text = context.getString(R.string.set_progress_percent, percentage)
         syncDecorations()

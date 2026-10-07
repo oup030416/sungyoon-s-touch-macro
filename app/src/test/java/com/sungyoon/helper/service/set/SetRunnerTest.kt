@@ -60,6 +60,54 @@ class SetRunnerTest {
     }
 
     @Test
+    fun elapsedTimeAccumulatesAcrossPassesExcludesPausesAndResetsOnRestart() = runTest {
+        val items = MutableStateFlow<List<SetItem>>(listOf(wait("elapsed", 1000L)))
+        val runner = runner(items)
+        assertTrue(runner.start())
+        runCurrent()
+        advance(2500L)
+        assertEquals(3L, runner.state.value.pass)
+        assertEquals(2500L, runner.state.value.elapsedMs)
+        runner.pause()
+        advance(5000L)
+        assertEquals(2500L, runner.state.value.elapsedMs)
+        runner.resume()
+        runCurrent()
+        advance(1000L)
+        assertEquals(3500L, runner.state.value.elapsedMs)
+        runner.stopAndJoin()
+        assertEquals(0L, runner.state.value.elapsedMs)
+        assertTrue(runner.start())
+        runCurrent()
+        assertEquals(0L, runner.state.value.elapsedMs)
+        runner.stopAndJoin()
+    }
+
+    @Test
+    fun initiallyPausedElapsedTimeIgnoresStartupWaitAndCapturesUnfinishedGesture() = runTest {
+        val completion = CompletableDeferred<Unit>()
+        val items = MutableStateFlow<List<SetItem>>(listOf(touch("gesture", point("first"))))
+        val runner = runner(items, execute = { _, _ -> completion.await(); true })
+        assertTrue(runner.start(paused = true))
+        runCurrent()
+        advance(5000L)
+        assertEquals(0L, runner.state.value.elapsedMs)
+        runner.resume()
+        runCurrent()
+        advance(1250L)
+        runner.pause()
+        assertFalse(runner.state.value.paused)
+        assertEquals(1250L, runner.state.value.elapsedMs)
+        advance(5000L)
+        assertEquals(1250L, runner.state.value.elapsedMs)
+        completion.complete(Unit)
+        runCurrent()
+        assertTrue(runner.state.value.paused)
+        assertEquals(1250L, runner.state.value.elapsedMs)
+        runner.stopAndJoin()
+    }
+
+    @Test
     fun normalTouchIncludesFinalIntervalThenWaitsAndRepeatsFromBeginning() = runTest {
         val items = MutableStateFlow<List<SetItem>>(listOf(touch("a", point("p")), wait("w", 200L)))
         val actions = mutableListOf<Action>()

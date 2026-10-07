@@ -29,6 +29,7 @@ data class SetRunState(
     val remainingMs: Long = 0L,
     val phaseDurationMs: Long = 0L,
     val progress: Float = 0f,
+    val elapsedMs: Long = 0L,
     val stopReason: SetStopReason? = null,
 )
 

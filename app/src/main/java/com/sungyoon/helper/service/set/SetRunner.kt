@@ -42,6 +42,7 @@ class SetRunner(
     private var itemExecuting = false
     private var pausedAtMs: Long? = null
     private var accumulatedPauseMs = 0L
+    private var startedAtMs = 0L
     private var timing: PhaseTiming? = null
     private var disposed = false
 
@@ -66,6 +67,7 @@ class SetRunner(
             itemExecuting = false
             pausedAtMs = if (paused) nowMs() else null
             accumulatedPauseMs = 0L
+            startedAtMs = activeNowLocked()
             timing = null
             cursor = SetCursor()
             mutableState.value = SetRunState(active = true, paused = paused, itemCount = items.value.size)
@@ -400,12 +402,22 @@ class SetRunner(
     }
 
     private fun refreshTimingLocked() {
-        val current = timing ?: return
-        val remaining = (current.endsAtMs - activeNowLocked()).coerceIn(0L, current.durationMs)
+        val state = mutableState.value
+        if (!state.active) return
+        val activeTime = activeNowLocked()
+        val elapsed = (activeTime - startedAtMs).coerceAtLeast(0L)
+        // A first gesture may not have phase timing yet, but opening the manager must capture its elapsed time.
+        val current = timing
+        if (current == null) {
+            mutableState.value = state.copy(elapsedMs = elapsed)
+            return
+        }
+        val remaining = (current.endsAtMs - activeTime).coerceIn(0L, current.durationMs)
         val portion = if (current.durationMs == 0L) 1f else 1f - remaining.toFloat() / current.durationMs
         mutableState.value = mutableState.value.copy(
             remainingMs = remaining,
             progress = (current.progressBase + current.progressWeight * portion).coerceIn(0f, 1f),
+            elapsedMs = elapsed,
         )
     }
 
