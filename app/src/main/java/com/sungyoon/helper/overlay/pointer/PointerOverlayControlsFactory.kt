@@ -34,6 +34,7 @@ data class PointerOverlayControlsViews(
     val setBtn: Button,
     val touchAnimToggleBtn: Button,
     val collapseBtn: ImageButton,
+    val feedbackBtn: ImageButton,
     val closeBtn: ImageButton,
     val intervalEdit: EditText,
     val dragDurationEdit: EditText,
@@ -41,7 +42,6 @@ data class PointerOverlayControlsViews(
     val randomRadiusValueText: TextView,
     val pointerSizeSeek: SeekBar,
     val pointerSizeValueText: TextView,
-    val subtitleText: TextView,
     val hintText: TextView
 )
 
@@ -112,14 +112,11 @@ object PointerOverlayControlsFactory {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         }
 
-        val subtitleText = TextView(context).apply {
-            text = context.getString(R.string.pointer_control_subtitle)
-            setTextColor(Color.parseColor("#B3FFFFFF"))
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f)
-            setPadding(0, dp(3), 0, 0)
-        }
-
         val collapseBtn = createCollapseButton(context, dp)
+        val feedbackBtn = createCollapseButton(context, dp).apply {
+            setImageResource(R.drawable.ic_feedback_24)
+            contentDescription = context.getString(R.string.feedback_title)
+        }
 
         val closeBtn = ImageButton(context).apply {
             setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
@@ -135,9 +132,9 @@ object PointerOverlayControlsFactory {
         }
 
         titleCol.addView(titleText)
-        titleCol.addView(subtitleText)
         headerRow.addView(titleCol)
         headerRow.addView(collapseBtn)
+        headerRow.addView(feedbackBtn)
         headerRow.addView(closeBtn)
 
         val hintText = TextView(context).apply {
@@ -449,6 +446,7 @@ object PointerOverlayControlsFactory {
             setBtn = setBtn,
             touchAnimToggleBtn = touchAnimToggleBtn,
             collapseBtn = collapseBtn,
+            feedbackBtn = feedbackBtn,
             closeBtn = closeBtn,
             intervalEdit = intervalEdit,
             dragDurationEdit = dragDurationEdit,
@@ -456,7 +454,6 @@ object PointerOverlayControlsFactory {
             randomRadiusValueText = randomRadiusValueText,
             pointerSizeSeek = pointerSizeSeek,
             pointerSizeValueText = pointerSizeValueText,
-            subtitleText = subtitleText,
             hintText = hintText
         )
     }

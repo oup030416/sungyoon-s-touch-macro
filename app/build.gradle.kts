@@ -29,6 +29,12 @@ val hasReleaseSigning = listOf(
     releaseKeyPassword,
 ).all { !it.isNullOrBlank() }
 
+// Public web-app URL only; Google credentials must never enter the APK.
+val feedbackEndpoint = localProperties.getProperty("feedback.endpoint", "")
+require(feedbackEndpoint.isEmpty() || Regex("https://script\\.google\\.com/macros/s/[A-Za-z0-9_-]+/exec").matches(feedbackEndpoint)) {
+    "feedback.endpoint must be a deployed Google Apps Script HTTPS /exec URL"
+}
+
 android {
     namespace = "com.sungyoon.helper"
     compileSdk = 36
@@ -44,6 +50,7 @@ android {
         buildConfigField("String", "APP_VERSION_NAME", "\"$appVersionName\"")
         buildConfigField("String", "DEV_VERSION_NAME", "\"$devVersionName\"")
         buildConfigField("int", "DEV_VERSION_CODE", devVersionCode.toString())
+        buildConfigField("String", "FEEDBACK_ENDPOINT", "\"$feedbackEndpoint\"")
     }
 
     signingConfigs {
@@ -101,6 +108,7 @@ dependencies {
 
     // DataStore + Serialization (포인트 저장)
     implementation("androidx.datastore:datastore-preferences:1.2.0")
+    implementation("androidx.work:work-runtime-ktx:2.12.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")

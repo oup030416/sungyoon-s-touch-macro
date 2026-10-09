@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import android.content.Intent
 import com.sungyoon.helper.update.AppUpdateManager
+import com.sungyoon.helper.feedback.FeedbackRuntime
 
 
 class MainActivity : ComponentActivity() {
@@ -17,6 +18,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         AppUpdateManager.clearInstalledUpdate(this)
+        FeedbackRuntime.recover(this)
 
         val v = MainScreenView(this)
         mainView = v

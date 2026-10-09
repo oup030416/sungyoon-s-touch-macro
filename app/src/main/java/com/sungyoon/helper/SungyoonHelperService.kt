@@ -114,6 +114,7 @@ class SungyoonHelperService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
+        com.sungyoon.helper.feedback.FeedbackRuntime.recover(this)
 
         destroyed = false
         serviceGeneration++

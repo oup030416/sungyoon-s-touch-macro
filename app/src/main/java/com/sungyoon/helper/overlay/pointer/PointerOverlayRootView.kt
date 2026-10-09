@@ -20,6 +20,7 @@ import androidx.core.graphics.Insets
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.children
 import com.sungyoon.helper.R
+import com.sungyoon.helper.feedback.FeedbackPanelView
 import com.sungyoon.helper.model.HighlightingPoint
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.PresetEntry
@@ -123,6 +124,13 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         dp = ::dp,
         onRequestIme = ::requestIme
     )
+    private val feedbackHost = FeedbackPanelView(context, ::requestIme)
+
+    fun requestFeedbackDismiss(onDismissed: () -> Unit): Boolean {
+        if (!feedbackHost.isShowing()) return false
+        feedbackHost.requestDismiss(onDismissed)
+        return true
+    }
 
     private val miniPanelToggleBtn: ImageButton = ImageButton(context).apply {
         setImageResource(android.R.drawable.arrow_down_float)
@@ -226,6 +234,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
 
         addView(miniPanelToggleBtn)
         addView(modalHost)
+        addView(feedbackHost, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         miniPanelToggleBtn.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
             if (!panelVisible || setContentMinimized) updateMoveStickPosition()
         }
@@ -254,6 +263,7 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         setTouchAnimationEnabled(true)
 
         controls.collapseBtn.setOnClickListener { setControlPanelVisible(false) }
+        controls.feedbackBtn.setOnClickListener { feedbackHost.show() }
         miniPanelToggleBtn.setOnClickListener {
             if (setContentMinimized) restoreSetContent() else setControlPanelVisible(true)
         }
@@ -314,7 +324,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
                         (reservationPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, reservationPanel)) ||
                         (presetPanel.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, presetPanel)) ||
                         (setContentHost.visibility == View.VISIBLE && isTouchInsideViewRaw(ev.rawX, ev.rawY, setContentHost)) ||
-                        (modalHost.isShowing() && isTouchInsideViewRaw(ev.rawX, ev.rawY, modalHost))
+                        (modalHost.isShowing() && isTouchInsideViewRaw(ev.rawX, ev.rawY, modalHost)) ||
+                        feedbackHost.isShowing()
 
             val touchedMini = (miniPanelToggleBtn.visibility == View.VISIBLE) &&
                     isTouchInsideViewRaw(ev.rawX, ev.rawY, miniPanelToggleBtn)
@@ -1958,6 +1969,8 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         // Only control surfaces avoid system/IME areas; the pointer plane stays unpadded.
         modalHost.setPadding(controlInsets.left, controlInsets.top, controlInsets.right,
             max(keyboardInsetBottom, controlInsets.bottom))
+        feedbackHost.setPadding(controlInsets.left, controlInsets.top, controlInsets.right,
+            max(keyboardInsetBottom, controlInsets.bottom))
 
         val miniLp = FrameLayout.LayoutParams(dp(44), dp(44)).apply {
             gravity = Gravity.TOP or Gravity.START
@@ -1967,7 +1980,6 @@ class PointerOverlayRootView(context: Context) : FrameLayout(context) {
         }
         miniPanelToggleBtn.layoutParams = miniLp
 
-        controls.subtitleText.visibility = if (landscape) View.GONE else View.VISIBLE
         controls.hintText.visibility = if (landscape) View.GONE else View.VISIBLE
     }
 

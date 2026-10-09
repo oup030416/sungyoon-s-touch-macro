@@ -544,6 +544,11 @@ class PointerOverlayController(private val app: Context) {
     }
 
     fun hide(resumeSet: Boolean = false) {
+        // User navigation confirms discarding a draft; service teardown still removes its window.
+        val feedbackOwner = root
+        if (resumeSet && feedbackOwner?.requestFeedbackDismiss {
+                if (root === feedbackOwner) hide(resumeSet = true)
+            } == true) return
         val wasOpening = showRequestJob?.isActive == true
         showRequestJob?.cancel()
         showRequestJob = null

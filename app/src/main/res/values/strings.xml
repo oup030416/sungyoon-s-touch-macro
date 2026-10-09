@@ -20,7 +20,6 @@
     <string name="pointer_random_radius_label">랜덤 반지름 크기</string>
     <string name="pointer_random_radius_value">%1$ddp</string>
     <string name="pointer_control_title">터치포인터 관리</string>
-    <string name="pointer_control_subtitle">포인터를 추가하고 이동 핸들로 위치를 조정하세요.</string>
     <string name="pointer_control_hint">포인터를 선택하면 이동하거나 삭제할 수 있습니다.</string>
     <string name="pointer_control_hide">패널 접기</string>
     <string name="pointer_panel_close">돌아가기 ></string>
@@ -214,4 +213,20 @@
     <string name="set_missing_message">세트를 찾을 수 없습니다. 세트 목록에서 다시 선택해 주세요.</string>
     <string name="set_repeat_on">무한반복\nON</string>
     <string name="set_repeat_off">무한반복\nOFF</string>
+    <string name="feedback_title">요청사항 / 피드백</string>
+    <string name="feedback_close">피드백 창 닫기</string>
+    <string name="feedback_hint">요청사항이나 피드백을 입력해주세요.</string>
+    <string name="feedback_submit">제출</string>
+    <string name="feedback_counter">%1$d / %2$d자</string>
+    <string name="feedback_required">내용을 입력해주세요.</string>
+    <string name="feedback_saving">피드백을 저장하고 있습니다.</string>
+    <string name="feedback_queued">피드백이 저장됐습니다. 인터넷 연결 시 자동으로 전송됩니다.</string>
+    <string name="feedback_queue_full">전송 대기 중인 피드백이 많습니다. 인터넷 연결 후 다시 제출해주세요.</string>
+    <string name="feedback_save_failed">피드백을 저장하지 못했습니다. 다시 제출해주세요.</string>
+    <string name="feedback_schedule_failed">내용은 저장됐지만 전송 예약에 실패했습니다. 제출을 다시 눌러주세요. 닫아도 저장된 내용은 유지됩니다.</string>
+    <string name="feedback_unconfigured">피드백 전송 서비스가 아직 연결되지 않았습니다.</string>
+    <string name="feedback_discard_title">작성 중인 내용을 삭제할까요?</string>
+    <string name="feedback_discard_message">제출하지 않은 내용은 저장되지 않습니다.</string>
+    <string name="feedback_continue_editing">계속 작성</string>
+    <string name="feedback_discard">삭제하고 닫기</string>
 </resources>
