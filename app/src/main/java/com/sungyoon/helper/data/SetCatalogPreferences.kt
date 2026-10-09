@@ -55,6 +55,16 @@ internal object SetCatalogPreferences {
     fun read(prefs: Preferences): List<SetDefinition> = decode(prefs[catalog] ?: "[]")
     fun write(prefs: MutablePreferences, sets: List<SetDefinition>) { prefs[catalog] = encode(sets) }
 
+    fun move(prefs: MutablePreferences, setId: String, toIndex: Int): Boolean {
+        val sets = read(prefs)
+        val from = sets.indexOfFirst { it.id == setId }
+        if (from < 0) return false
+        val target = toIndex.coerceIn(0, sets.lastIndex)
+        if (from == target) return false
+        write(prefs, sets.toMutableList().apply { add(target, removeAt(from)) })
+        return true
+    }
+
     fun duplicate(prefs: MutablePreferences, setId: String, name: (String) -> String): SetDefinition? {
         val sets = read(prefs)
         val source = sets.firstOrNull { it.id == setId } ?: return null

@@ -48,6 +48,15 @@ object SetStore {
         return updateSet(context, setId) { it.copy(name = name.trim()) }
     }
 
+    suspend fun moveSet(context: Context, setId: String, toIndex: Int): Boolean {
+        var changed = false
+        context.applicationContext.setDataStore.edit { prefs ->
+            initialize(context, prefs)
+            changed = SetCatalogPreferences.move(prefs, setId, toIndex)
+        }
+        return changed
+    }
+
     suspend fun duplicateSet(context: Context, setId: String): SetDefinition? {
         var created: SetDefinition? = null
         context.applicationContext.setDataStore.edit { prefs ->

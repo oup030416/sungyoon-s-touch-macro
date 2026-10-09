@@ -47,7 +47,7 @@ class SetCatalogCoordinator(
         private set
     var isOpen = false
         private set
-    private val panel = SetCatalogPanelView(context, ::close, ::openEditor, ::rename, ::duplicate, ::add, ::delete)
+    private val panel = SetCatalogPanelView(context, ::close, ::openEditor, ::rename, ::duplicate, ::add, ::delete, ::move)
 
     init {
         uiScope.launch {
@@ -171,6 +171,10 @@ class SetCatalogCoordinator(
                 host.rememberSetScreen(false, selectedId)
             }
         }
+    }
+
+    private fun move(id: String, toIndex: Int) {
+        write { SetStore.moveSet(context, id, toIndex) }
     }
 
     private fun delete() {

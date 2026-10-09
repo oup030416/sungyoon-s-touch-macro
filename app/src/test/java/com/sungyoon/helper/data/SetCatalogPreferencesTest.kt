@@ -13,6 +13,36 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SetCatalogPreferencesTest {
+    @Test fun reorderPersistsWithoutChangingSetContentsOrNamingCounters() {
+        val prefs = mutablePreferencesOf()
+        SetCatalogPreferences.initialize(prefs, "first")
+        val a = SetDefinition("a", "A", listOf(SetItem.Wait("wait", "W", 1700L)), true)
+        val b = SetDefinition("b", "B")
+        val c = SetDefinition("c", "C")
+        SetCatalogPreferences.write(prefs, listOf(a, b, c))
+        prefs[SetCatalogPreferences.ordinalKey(a.id, SetItemType.WAIT)] = 17
+        assertTrue(SetCatalogPreferences.move(prefs, "a", 2))
+        assertEquals(listOf(b, c, a), SetCatalogPreferences.read(prefs))
+        assertTrue(SetCatalogPreferences.move(prefs, "a", -100))
+        assertEquals(listOf(a, b, c), SetCatalogPreferences.read(prefs))
+        assertTrue(SetCatalogPreferences.move(prefs, "b", 100))
+        assertEquals(listOf(a, c, b), SetCatalogPreferences.read(prefs))
+        assertEquals(17, prefs[SetCatalogPreferences.ordinalKey(a.id, SetItemType.WAIT)])
+        SetCatalogPreferences.initialize(prefs, "unused")
+        assertEquals(listOf(a, c, b), SetCatalogPreferences.read(prefs))
+    }
+
+    @Test fun reorderMissingAndUnchangedSetsDoesNotWriteOrResurrect() {
+        val prefs = mutablePreferencesOf()
+        SetCatalogPreferences.initialize(prefs, "first")
+        assertFalse(SetCatalogPreferences.move(prefs, "missing", 0))
+        SetCatalogPreferences.write(prefs, listOf(SetDefinition("only", "Only")))
+        val before = prefs.asMap().toMap()
+        assertFalse(SetCatalogPreferences.move(prefs, "deleted", 0))
+        assertFalse(SetCatalogPreferences.move(prefs, "only", 50))
+        assertEquals(before, prefs.asMap())
+    }
+
     @Test fun duplicatePreservesConfigurationAndSeparatesIdentitiesAndCounters() {
         val point = HighlightingPoint(id = "point", x = 2519f, y = 999f, index = 4, delayMs = 1234L,
             actionType = HighlightingPoint.ACTION_TYPE_DRAG, dragToX = 0f, dragToY = 1250f, dragDurationMs = 500L)
