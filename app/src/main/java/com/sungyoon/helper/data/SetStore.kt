@@ -48,6 +48,17 @@ object SetStore {
         return updateSet(context, setId) { it.copy(name = name.trim()) }
     }
 
+    suspend fun duplicateSet(context: Context, setId: String): SetDefinition? {
+        var created: SetDefinition? = null
+        context.applicationContext.setDataStore.edit { prefs ->
+            initialize(context, prefs)
+            created = SetCatalogPreferences.duplicate(prefs, setId) { name ->
+                context.getString(R.string.set_duplicate_name, name)
+            }
+        }
+        return created
+    }
+
     suspend fun setRepeatEnabled(context: Context, setId: String, enabled: Boolean): Boolean =
         updateSet(context, setId) { it.copy(repeatEnabled = enabled) }
 

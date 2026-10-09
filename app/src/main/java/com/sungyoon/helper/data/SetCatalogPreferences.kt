@@ -55,6 +55,19 @@ internal object SetCatalogPreferences {
     fun read(prefs: Preferences): List<SetDefinition> = decode(prefs[catalog] ?: "[]")
     fun write(prefs: MutablePreferences, sets: List<SetDefinition>) { prefs[catalog] = encode(sets) }
 
+    fun duplicate(prefs: MutablePreferences, setId: String, name: (String) -> String): SetDefinition? {
+        val sets = read(prefs)
+        val source = sets.firstOrNull { it.id == setId } ?: return null
+        val copy = source.copy(id = UUID.randomUUID().toString(), name = name(source.name),
+            items = source.items.map { it.duplicate(it.name) })
+        write(prefs, sets + copy)
+        // Continue each item's naming sequence independently from the same saved snapshot.
+        SetItemType.entries.forEach { type ->
+            prefs[ordinalKey(copy.id, type)] = prefs[ordinalKey(source.id, type)] ?: 1
+        }
+        return copy
+    }
+
     fun update(prefs: MutablePreferences, setId: String, transform: (SetDefinition) -> SetDefinition?): Boolean {
         val sets = read(prefs)
         val index = sets.indexOfFirst { it.id == setId }

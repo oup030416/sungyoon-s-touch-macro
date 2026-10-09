@@ -16,6 +16,7 @@ class SetCatalogPanelView(
     onBack: () -> Unit,
     private val onOpen: (String) -> Unit,
     private val onRename: (String) -> Unit,
+    private val onDuplicate: (String) -> Unit,
     onAdd: () -> Unit,
     onDelete: () -> Unit,
 ) : SetPanelView(context, context.getString(R.string.set_catalog_title), onBack) {
@@ -56,6 +57,14 @@ class SetCatalogPanelView(
                 background = PointerOverlayDrawables.roundedRippleBg(Color.parseColor("#3A3A3A"), Color.parseColor("#40FFFFFF"), context::setDp, 12)
                 setPadding(context.setDp(7), context.setDp(7), context.setDp(7), context.setDp(7))
                 setOnClickListener { onRename(set.id) }
+            }, LayoutParams(context.setDp(38), context.setDp(38)).apply { leftMargin = context.setDp(8) })
+            row.addView(ImageButton(context).apply {
+                setImageResource(R.drawable.ic_set_duplicate)
+                setColorFilter(Color.WHITE)
+                contentDescription = context.getString(R.string.set_duplicate_description, set.name)
+                background = PointerOverlayDrawables.roundedRippleBg(Color.parseColor("#4F54BF"), Color.parseColor("#40FFFFFF"), context::setDp, 12)
+                setPadding(context.setDp(7), context.setDp(7), context.setDp(7), context.setDp(7))
+                setOnClickListener { onDuplicate(set.id) }
             }, LayoutParams(context.setDp(38), context.setDp(38)).apply { leftMargin = context.setDp(8) })
             rows.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = context.setDp(8) })
         }

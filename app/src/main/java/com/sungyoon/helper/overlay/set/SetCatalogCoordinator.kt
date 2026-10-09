@@ -47,7 +47,7 @@ class SetCatalogCoordinator(
         private set
     var isOpen = false
         private set
-    private val panel = SetCatalogPanelView(context, ::close, ::openEditor, ::rename, ::add, ::delete)
+    private val panel = SetCatalogPanelView(context, ::close, ::openEditor, ::rename, ::duplicate, ::add, ::delete)
 
     init {
         uiScope.launch {
@@ -154,6 +154,21 @@ class SetCatalogCoordinator(
                 // Store completion can precede the IO flow emission.
                 sets = sets.filterNot { it.id == set.id } + set
                 openEditor(set.id)
+            }
+        }
+    }
+
+    private fun duplicate(id: String) {
+        if (SetRuntime.active) { toast(context, context.getString(R.string.set_catalog_add_blocked)); return }
+        val source = generation
+        write {
+            if (SetRuntime.active) { toast(context, context.getString(R.string.set_catalog_add_blocked)); return@write }
+            val copy = SetStore.duplicateSet(context, id) ?: return@write
+            if (!disposed && generation == source && isOpen && editor == null) {
+                sets = sets.filterNot { it.id == copy.id } + copy
+                selectedId = copy.id
+                panel.render(sets, selectedId)
+                host.rememberSetScreen(false, selectedId)
             }
         }
     }

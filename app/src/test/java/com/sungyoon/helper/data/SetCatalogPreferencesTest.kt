@@ -13,6 +13,62 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SetCatalogPreferencesTest {
+    @Test fun duplicatePreservesConfigurationAndSeparatesIdentitiesAndCounters() {
+        val point = HighlightingPoint(id = "point", x = 2519f, y = 999f, index = 4, delayMs = 1234L,
+            actionType = HighlightingPoint.ACTION_TYPE_DRAG, dragToX = 0f, dragToY = 1250f, dragDurationMs = 500L)
+        val original = SetDefinition("source", "세트 이름", listOf(
+            SetItem.Touch("touch", "일반 3", listOf(point)),
+            SetItem.Reserved("reserved", "예약 4", listOf(point), ReservationConfig(37, 19, 8)),
+            SetItem.Wait("wait", "대기 5", 1200L)), true)
+        val prefs = mutablePreferencesOf()
+        SetCatalogPreferences.initialize(prefs, "first")
+        SetCatalogPreferences.write(prefs, listOf(original, SetDefinition("other", "Other")))
+        SetItemType.entries.forEach { prefs[SetCatalogPreferences.ordinalKey(original.id, it)] = 42 }
+        val copy = checkNotNull(SetCatalogPreferences.duplicate(prefs, original.id) { "$it (복제)" })
+        val saved = SetCatalogPreferences.read(prefs)
+        assertEquals(listOf("source", "other", copy.id), saved.map { it.id })
+        assertEquals(original, saved.first())
+        assertEquals("세트 이름 (복제)", copy.name)
+        assertTrue(copy.repeatEnabled)
+        original.items.zip(copy.items).forEach { (before, after) ->
+            assertNotEquals(before.id, after.id)
+            assertEquals(before, after.renamed(before.name).let {
+                when (it) {
+                    is SetItem.Touch -> it.copy(id = before.id, points = before.points)
+                    is SetItem.Reserved -> it.copy(id = before.id, points = before.points)
+                    is SetItem.Wait -> it.copy(id = before.id)
+                }
+            })
+            before.points.zip(after.points).forEach { (a, b) ->
+                assertNotEquals(a.id, b.id)
+                assertEquals(a, b.copy(id = a.id))
+            }
+        }
+        SetItemType.entries.forEach { type ->
+            assertEquals(42, prefs[SetCatalogPreferences.ordinalKey(copy.id, type)])
+            prefs[SetCatalogPreferences.ordinalKey(copy.id, type)] = 43
+            assertEquals(42, prefs[SetCatalogPreferences.ordinalKey(original.id, type)])
+        }
+        SetCatalogPreferences.update(prefs, copy.id) { it.copy(items = emptyList(), repeatEnabled = false) }
+        assertEquals(original, SetCatalogPreferences.read(prefs).first())
+    }
+
+    @Test fun duplicateDeletedSourceDoesNotWriteAndEmptyCopiesRemainIndependent() {
+        val prefs = mutablePreferencesOf()
+        SetCatalogPreferences.initialize(prefs, "first")
+        SetCatalogPreferences.write(prefs, listOf(SetDefinition("empty", "빈 세트")))
+        val before = prefs.asMap().toMap()
+        assertNull(SetCatalogPreferences.duplicate(prefs, "deleted") { error("Missing source") })
+        assertEquals(before, prefs.asMap())
+        val first = checkNotNull(SetCatalogPreferences.duplicate(prefs, "empty") { "$it (복제)" })
+        val second = checkNotNull(SetCatalogPreferences.duplicate(prefs, first.id) { "$it (복제)" })
+        assertEquals("빈 세트 (복제) (복제)", second.name)
+        assertFalse(second.repeatEnabled)
+        assertTrue(second.items.isEmpty())
+        assertEquals(3, SetCatalogPreferences.read(prefs).map { it.id }.distinct().size)
+        assertEquals(1, prefs[SetCatalogPreferences.ordinalKey(second.id, SetItemType.WAIT)])
+    }
+
     private val codec = Json { classDiscriminator = "kind"; encodeDefaults = true }
     private fun legacy(items: List<SetItem>) = codec.encodeToString(ListSerializer(SetItem.serializer()), items)
 
