@@ -220,7 +220,7 @@
     <string name="feedback_counter">%1$d / %2$d자</string>
     <string name="feedback_required">내용을 입력해주세요.</string>
     <string name="feedback_saving">피드백을 저장하고 있습니다.</string>
-    <string name="feedback_queued">피드백이 저장됐습니다. 인터넷 연결 시 자동으로 전송됩니다.</string>
+    <string name="feedback_queued">제출이 완료됐습니다.</string>
     <string name="feedback_queue_full">전송 대기 중인 피드백이 많습니다. 인터넷 연결 후 다시 제출해주세요.</string>
     <string name="feedback_save_failed">피드백을 저장하지 못했습니다. 다시 제출해주세요.</string>
     <string name="feedback_schedule_failed">내용은 저장됐지만 전송 예약에 실패했습니다. 제출을 다시 눌러주세요. 닫아도 저장된 내용은 유지됩니다.</string>
