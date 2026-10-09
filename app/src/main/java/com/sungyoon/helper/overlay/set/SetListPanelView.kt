@@ -31,6 +31,7 @@ class SetListPanelView(
     private val onDuplicate: (String) -> Unit,
     private val onStartOrResume: () -> Unit,
     private val onCancel: () -> Unit,
+    private val onRepeat: () -> Unit,
     private val onMove: (String, Int) -> Unit
 ) : SetPanelView(context, context.getString(R.string.set_title), onBack) {
     private val progressBar = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -63,11 +64,13 @@ class SetListPanelView(
     private var selectedId: String? = null
     private var runtime = SetRunState()
     private var pendingRevealItemId: String? = null
+    private var revealAnchorItemId: String? = null
     private val revealCurrentItem = ViewTreeObserver.OnPreDrawListener {
-        val id = pendingRevealItemId ?: return@OnPreDrawListener true
+        val id = pendingRevealItemId ?: revealAnchorItemId ?: return@OnPreDrawListener true
         val row = rowViews[id]
         if (row == null) {
             pendingRevealItemId = null
+            revealAnchorItemId = null
             return@OnPreDrawListener true
         }
         val scroll = activeScrollView()
@@ -88,6 +91,10 @@ class SetListPanelView(
     }
     private var pendingEntries: List<SetItem>? = null
     private val cancelButton = context.setAction(context.getString(R.string.set_cancel), onClick = onCancel)
+    private val repeatButton = context.setAction(context.getString(R.string.set_repeat_off), onClick = onRepeat).apply {
+        gravity = Gravity.CENTER
+        setPadding(context.setDp(2), context.setDp(8), context.setDp(2), context.setDp(8))
+    }
     private val startButton = context.setAction(context.getString(R.string.set_start), Color.parseColor("#2E7D32"), onStartOrResume)
     private var dragId: String? = null
     private var dragOrigin = 0
@@ -140,11 +147,34 @@ class SetListPanelView(
         body.addView(rowsContainer)
         body.addView(addControls,
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(12) })
-        footer.addView(cancelButton, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
-            rightMargin = context.setDp(10)
+        // Measure the original natural width once; repeated layout never shrinks it again.
+        cancelButton.measure(MeasureSpec.UNSPECIFIED, MeasureSpec.UNSPECIFIED)
+        val cancelWidth = (cancelButton.measuredWidth * 0.9f).toInt()
+        cancelButton.setPadding(context.setDp(4), context.setDp(10), context.setDp(4), context.setDp(10))
+        footer.addView(cancelButton, LayoutParams(cancelWidth, LayoutParams.WRAP_CONTENT).apply {
+            rightMargin = context.setDp(6)
+        })
+        footer.addView(repeatButton, LayoutParams(context.setDp(72), LayoutParams.WRAP_CONTENT).apply {
+            rightMargin = context.setDp(6)
         })
         footer.addView(startButton, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
         setItems(emptyList(), null)
+    }
+
+    override fun dispatchTouchEvent(event: MotionEvent): Boolean {
+        if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+            // Opening layouts can resize after the first draw. Retain the anchor until user input.
+            pendingRevealItemId = null
+            revealAnchorItemId = null
+        }
+        return super.dispatchTouchEvent(event)
+    }
+
+    fun setDefinition(name: String, repeatEnabled: Boolean) {
+        setTitle(name)
+        repeatButton.text = context.getString(if (repeatEnabled) R.string.set_repeat_on else R.string.set_repeat_off)
+        repeatButton.background = PointerOverlayDrawables.roundedRippleBg(
+            Color.parseColor(if (repeatEnabled) "#4D5B5CE6" else "#2FFFFFFF"), Color.parseColor("#33FFFFFF"), context::setDp, 14)
     }
 
     fun setItems(items: List<SetItem>, selectedItemId: String?) {
@@ -215,6 +245,7 @@ class SetListPanelView(
         runtime = state
         if (!state.active) {
             pendingRevealItemId = null
+            revealAnchorItemId = null
             clearScrollContentMinimumHeights()
         }
         val percentage = SetProgress.percent(state)
@@ -230,6 +261,7 @@ class SetListPanelView(
 
     fun scrollCurrentItemToTop() {
         pendingRevealItemId = runtime.currentItem?.id?.takeIf { runtime.active }
+        revealAnchorItemId = pendingRevealItemId
         if (pendingRevealItemId != null) invalidate()
     }
 
@@ -241,6 +273,7 @@ class SetListPanelView(
     override fun onDetachedFromWindow() {
         if (viewTreeObserver.isAlive) viewTreeObserver.removeOnPreDrawListener(revealCurrentItem)
         pendingRevealItemId = null
+        revealAnchorItemId = null
         clearScrollContentMinimumHeights()
         finishDrag(commit = false)
         super.onDetachedFromWindow()

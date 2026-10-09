@@ -74,7 +74,7 @@ open class SetPanelView(
         isFillViewport = false
         addView(body, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
-    private val titleView = context.setText(title, 17f, true)
+    private val titleView = context.setText(title, 17f, true).apply { maxLines = 2; ellipsize = TextUtils.TruncateAt.END }
     private val parentPath = context.setText("", 11.5f).apply {
         setTextColor(Color.parseColor("#B8B8B8"))
         maxLines = 2
@@ -124,8 +124,8 @@ open class SetPanelView(
         // Keeping this hierarchy mounted prevents IME focus loss during viewport changes.
         compactBody.addView(header)
         compactBody.addView(bodyScroll)
-        compactBody.addView(footer)
         addView(compactScroll, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(footer, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         configureScrollMode(false)
         addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ -> post { adapt() } }
     }
@@ -241,7 +241,7 @@ open class SetPanelView(
         val shouldCompact = maxViewportHeight - fixed < context.setDp(100)
         if (compact != shouldCompact) configureScrollMode(shouldCompact)
         if (compact) {
-            val target = (maxViewportHeight - paddingTop - paddingBottom).coerceAtLeast(1)
+            val target = (maxViewportHeight - paddingTop - paddingBottom - footerHeight).coerceAtLeast(1)
             if (compactScroll.layoutParams.height != target) {
                 compactScroll.layoutParams = LayoutParams(LayoutParams.MATCH_PARENT, target)
             }

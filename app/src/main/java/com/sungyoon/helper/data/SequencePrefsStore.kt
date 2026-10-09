@@ -2,6 +2,7 @@ package com.sungyoon.helper.data
 
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.Dispatchers
@@ -22,6 +23,21 @@ object SequencePrefsStore {
 
     suspend fun setSetPanelVisible(context: Context, visible: Boolean) {
         context.runtimeStore.edit { it[KEY_SET_PANEL_VISIBLE] = visible }
+    }
+
+    private val KEY_SET_EDITOR_VISIBLE = booleanPreferencesKey("set_editor_visible")
+    private val KEY_OPEN_SET_ID = stringPreferencesKey("open_set_id")
+    data class SetScreen(val editor: Boolean?, val setId: String?)
+
+    fun setScreenFlow(context: Context): Flow<SetScreen> = context.runtimeStore.data.map {
+        SetScreen(it[KEY_SET_EDITOR_VISIBLE], it[KEY_OPEN_SET_ID])
+    }.flowOn(Dispatchers.IO)
+
+    suspend fun rememberSetScreen(context: Context, editor: Boolean, setId: String?) {
+        context.runtimeStore.edit {
+            it[KEY_SET_EDITOR_VISIBLE] = editor
+            if (setId == null) it.remove(KEY_OPEN_SET_ID) else it[KEY_OPEN_SET_ID] = setId
+        }
     }
 
     private val KEY_REPEAT_ENABLED = booleanPreferencesKey("repeat_enabled")

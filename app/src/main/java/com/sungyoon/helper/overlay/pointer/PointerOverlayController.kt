@@ -31,8 +31,9 @@ import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_DRAG
 import com.sungyoon.helper.model.HighlightingPoint.Companion.ACTION_TYPE_TAP
 import com.sungyoon.helper.model.PresetEntry
 import com.sungyoon.helper.model.SetItem
-import com.sungyoon.helper.overlay.set.SetEditorCoordinator
-import com.sungyoon.helper.overlay.set.SetEditorHost
+import com.sungyoon.helper.model.SetDefinition
+import com.sungyoon.helper.overlay.set.SetCatalogCoordinator
+import com.sungyoon.helper.overlay.set.SetCatalogHost
 import com.sungyoon.helper.overlay.configureFullScreenOverlayBounds
 import com.sungyoon.helper.service.set.SetRuntime
 import kotlinx.coroutines.CancellationException
@@ -70,7 +71,7 @@ class PointerOverlayController(private val app: Context) {
     private var showRequestJob: Job? = null
     private var closeRequestJob: Job? = null
     private var closeRequestGeneration = 0L
-    private var setEditor: SetEditorCoordinator? = null
+    private var setCatalog: SetCatalogCoordinator? = null
     private val pointerRepository = PointerEditRepository(app)
     private val editTarget = MutableStateFlow<PointerEditTarget>(PointerEditTarget.Global)
     private val pendingWrites = mutableSetOf<Job>()
@@ -155,7 +156,8 @@ class PointerOverlayController(private val app: Context) {
         val reservationVisiblePref = SequencePrefsStore.reservationPanelVisibleFlow(app).first()
         val presetVisiblePref = SequencePrefsStore.presetPanelVisibleFlow(app).first()
         val setVisiblePref = SequencePrefsStore.setPanelVisibleFlow(app).first()
-        val initialItems = if (SetRuntime.active || setVisiblePref) SetStore.itemsFlow(app).first() else emptyList()
+        val savedSetScreen = SequencePrefsStore.setScreenFlow(app).first()
+        val initialSets = SetStore.setsFlow(app).first()
         val initialPresets = if (presetVisiblePref) {
             PresetStore.presetsFlow(app).first().sortedByDescending { it.createdAtEpochMs }
         } else emptyList()
@@ -256,7 +258,7 @@ class PointerOverlayController(private val app: Context) {
                 openPresetPanel()
             }
 
-            setOnSetClick { setEditor?.open() }
+            setOnSetClick { setCatalog?.open() }
 
             setOnClearAllClick {
                 val target = editTarget.value
@@ -348,7 +350,9 @@ class PointerOverlayController(private val app: Context) {
                 val sourceSession = presetSession
                 launchWrite {
                     val existingPoints = ensurePointsLoaded(target)
-                    val loadAction: suspend () -> Unit = {
+                    val loadAction: suspend () -> Unit = load@{
+                        if (root !== sourceRoot || presetSession != sourceSession || editTarget.value != target ||
+                            !sourceRoot.isPresetPanelVisible()) return@load
                         loadPresetIntoPoints(preset, target)
                         if (root === sourceRoot && presetSession == sourceSession && editTarget.value == target &&
                             sourceRoot.isPresetPanelVisible()) {
@@ -480,13 +484,18 @@ class PointerOverlayController(private val app: Context) {
             root = v
             managerPausedSet = SetRuntime.active
             editTarget.value = PointerEditTarget.Global
-            setEditor = createSetEditor(v, initialItems)
+            setCatalog = createSetCatalog(v, initialSets, savedSetScreen.setId)
             v.setOtherExecutionBlocked(SetRuntime.active)
             val controlVisible = forceOpenControlPanel || SetRuntime.active || setVisiblePref ||
                 presetVisiblePref || reservationVisiblePref || panelVisiblePref
             v.setControlPanelVisibleFromController(controlVisible)
             when {
-                SetRuntime.active || setVisiblePref -> setEditor?.open()
+                SetRuntime.active -> SetRuntime.state.value.setId?.let { setCatalog?.openEditor(it) } ?: setCatalog?.open()
+                setVisiblePref -> {
+                    val restoreId = savedSetScreen.setId ?: if (savedSetScreen.editor == null) initialSets.firstOrNull()?.id else null
+                    if (savedSetScreen.editor != false && initialSets.any { it.id == restoreId }) setCatalog?.openEditor(checkNotNull(restoreId))
+                    else setCatalog?.open()
+                }
                 presetVisiblePref -> v.openPresetPanel()
                 reservationVisiblePref -> v.openReservationPanel()
             }
@@ -494,8 +503,8 @@ class PointerOverlayController(private val app: Context) {
             added = true
             overlayLp = lp
         } catch (failure: Exception) {
-            setEditor?.dispose()
-            setEditor = null
+            setCatalog?.dispose()
+            setCatalog = null
             root = null
             added = false
             overlayLp = null
@@ -550,18 +559,24 @@ class PointerOverlayController(private val app: Context) {
         if (resumeSet && added) {
             closing = true
             val requestGeneration = ++closeRequestGeneration
-            val editor = setEditor
+            val editor = setCatalog
+            val sourceGeneration = editor?.generation
+            val ownerId = SetRuntime.state.value.setId
             val sourceRoot = root
             closeRequestJob = scope.launch {
                 try {
                     editor?.flushWrites()
                     flushWrites()
                     flushSharedOptions()
-                    if (requestGeneration != closeRequestGeneration || root !== sourceRoot) return@launch
-                    val shouldResume = managerPausedSet && SetRuntime.active
+                    flushWrites()
+                    editor?.flushWrites()
+                    if (requestGeneration != closeRequestGeneration || root !== sourceRoot || editor?.generation != sourceGeneration) return@launch
+                    val shouldResume = managerPausedSet && SetRuntime.active && SetRuntime.state.value.setId == ownerId
                     removeWindow()
-                    if (shouldResume) sendSetCommand(SungyoonHelperService.ACTION_RESUME_SET)
-                } finally {
+                    if (shouldResume) sendSetCommand(SungyoonHelperService.ACTION_RESUME_SET, ownerId)
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { toast(app.getString(R.string.set_save_failed)) }
+                finally {
                     if (requestGeneration == closeRequestGeneration) {
                         closing = false
                         closeRequestJob = null
@@ -584,7 +599,7 @@ class PointerOverlayController(private val app: Context) {
             val panelVisibleNow = v.isControlPanelVisible()
             val reservationVisibleNow = v.isReservationPanelVisible()
             val presetVisibleNow = v.isPresetPanelVisible()
-            val setVisibleNow = setEditor?.isOpen == true
+            val setVisibleNow = setCatalog?.isOpen == true
             scope.launch {
                 SequencePrefsStore.setPointerPanelVisible(app, panelVisibleNow)
                 SequencePrefsStore.setReservationPanelVisible(app, reservationVisibleNow)
@@ -608,8 +623,8 @@ class PointerOverlayController(private val app: Context) {
         randomRadiusPersistJob?.cancel()
         randomRadiusPersistJob = null
         unregisterSequenceStateReceiver()
-        setEditor?.dispose()
-        setEditor = null
+        setCatalog?.dispose()
+        setCatalog = null
         if (!added) return
         root?.let {
             try { wm.removeView(it) } catch (_: Throwable) {}
@@ -670,21 +685,21 @@ class PointerOverlayController(private val app: Context) {
         }
     }
 
-    private fun createSetEditor(rootView: PointerOverlayRootView, initialItems: List<SetItem>): SetEditorCoordinator =
-        SetEditorCoordinator(app, scope, object : SetEditorHost {
+    private fun createSetCatalog(rootView: PointerOverlayRootView, initialSets: List<SetDefinition>, selectedId: String?): SetCatalogCoordinator =
+        SetCatalogCoordinator(app, scope, object : SetCatalogHost {
             override fun showSetContent(view: android.view.View?, showPointers: Boolean) {
                 if (root !== rootView) return
                 rootView.showSetContent(view, showPointers)
-                scope.launch { SequencePrefsStore.setSetPanelVisible(app, view != null) }
+                launchWrite { SequencePrefsStore.setSetPanelVisible(app, view != null) }
             }
 
             override fun minimizeSetContent() {
                 if (root === rootView) rootView.minimizeSetContent()
             }
 
-            override fun setPointerEditTarget(itemId: String?) {
+            override fun setPointerEditTarget(setId: String?, itemId: String?) {
                 if (root !== rootView) return
-                val next = itemId?.let { PointerEditTarget.Item(it) } ?: PointerEditTarget.Global
+                val next = if (itemId != null && setId != null) PointerEditTarget.Item(setId, itemId) else PointerEditTarget.Global
                 if (editTarget.value == next) return
                 draggingIds.clear()
                 latestPoints = emptyList()
@@ -734,20 +749,42 @@ class PointerOverlayController(private val app: Context) {
                 )
             }
 
-            override fun startOrResumeSet() { onSetStartOrResume() }
-            override fun cancelSetRun() {
+            override fun rememberSetScreen(editor: Boolean, setId: String?) {
+                if (root !== rootView) return
+                presetSession++
+                launchWrite { SequencePrefsStore.rememberSetScreen(app, editor, setId) }
+            }
+
+            override fun renameSet(set: SetDefinition, onName: (String) -> Unit) {
+                rootView.showInputDialog(
+                    title = app.getString(R.string.set_catalog_rename_title), initialValue = set.name,
+                    hint = app.getString(R.string.set_catalog_name_hint),
+                    confirmText = app.getString(R.string.dialog_save), cancelText = app.getString(R.string.dialog_cancel), onSubmit = onName)
+            }
+
+            override fun confirmDeleteSet(set: SetDefinition, onConfirm: () -> Unit) {
+                rootView.showConfirmationDialog(
+                    title = app.getString(R.string.set_catalog_delete_title), message = app.getString(R.string.set_catalog_delete_message, set.name),
+                    confirmText = app.getString(R.string.dialog_delete), cancelText = app.getString(R.string.dialog_cancel),
+                    destructive = true, onConfirm = onConfirm)
+            }
+
+            override fun startOrResumeSet(setId: String) { if (root === rootView) onSetStartOrResume(setId) }
+            override fun cancelSetRun(setId: String) {
+                if (root !== rootView) return
                 // Invalidate navigation while allowing the finite flush to persist all shared options.
                 closeRequestGeneration++
                 closeRequestJob = null
                 closing = false
-                sendSetCommand(SungyoonHelperService.ACTION_CANCEL_SET)
+                sendSetCommand(SungyoonHelperService.ACTION_CANCEL_SET, setId)
             }
             override fun requestIme(show: Boolean) { setOverlayFocusableForIme(show) }
-        }, initialItems)
+        }, initialSets, selectedId)
 
-    private fun onSetStartOrResume() {
-        if (startingOrdinary) return
+    private fun onSetStartOrResume(setId: String) {
+        if (startingOrdinary || setCatalog?.editor?.setId != setId) return
         if (SetRuntime.active) {
+            if (SetRuntime.state.value.setId != setId) { toast(app.getString(R.string.set_catalog_open_blocked)); return }
             hide(resumeSet = true)
             return
         }
@@ -759,26 +796,45 @@ class PointerOverlayController(private val app: Context) {
         }
         startingSet = true
         val sourceRoot = root
+        val sourceCatalog = setCatalog
+        val sourceEditor = sourceCatalog?.editor
+        val sourceGeneration = sourceCatalog?.generation
+        val sourceEditorGeneration = sourceEditor?.navigationGeneration
+        val sourceCloseGeneration = closeRequestGeneration
         scope.launch {
             try {
-                setEditor?.flushWrites()
+                setCatalog?.flushWrites()
                 flushWrites()
                 flushSharedOptions()
-                if (root !== sourceRoot || sourceRoot == null) return@launch
-                if (SetStore.itemsFlow(app).first().none { it.isExecutable }) {
+                sourceCatalog?.flushWrites()
+                if (root !== sourceRoot || sourceRoot == null || setCatalog !== sourceCatalog ||
+                    sourceCatalog?.generation != sourceGeneration || sourceCatalog?.editor !== sourceEditor ||
+                    sourceEditor?.navigationGeneration != sourceEditorGeneration ||
+                    sourceCloseGeneration != closeRequestGeneration || SetRuntime.active) return@launch
+                val definition = SetStore.setFlow(app, setId).first()
+                flushWrites()
+                sourceCatalog?.flushWrites()
+                if (root !== sourceRoot || setCatalog !== sourceCatalog || sourceCatalog?.generation != sourceGeneration ||
+                    sourceCatalog?.editor !== sourceEditor || sourceEditor?.navigationGeneration != sourceEditorGeneration ||
+                    sourceCloseGeneration != closeRequestGeneration || SetRuntime.active) return@launch
+                if (definition == null || definition.items.none { it.isExecutable }) {
                     toast(app.getString(R.string.set_empty_message))
                     return@launch
                 }
                 removeWindow()
-                sendSetCommand(SungyoonHelperService.ACTION_START_SET)
-            } finally {
+                sendSetCommand(SungyoonHelperService.ACTION_START_SET, setId)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { toast(app.getString(R.string.set_save_failed)) }
+            finally {
                 startingSet = false
             }
         }
     }
 
-    private fun sendSetCommand(action: String) {
-        app.sendBroadcast(Intent(action).setPackage(app.packageName))
+    private fun sendSetCommand(action: String, setId: String? = SetRuntime.state.value.setId) {
+        app.sendBroadcast(Intent(action).setPackage(app.packageName).apply {
+            if (setId != null) putExtra(SungyoonHelperService.EXTRA_SET_ID, setId)
+        })
     }
 
     private fun launchOrdinaryStart(

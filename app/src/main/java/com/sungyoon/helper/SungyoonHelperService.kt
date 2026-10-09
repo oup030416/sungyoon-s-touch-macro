@@ -165,10 +165,10 @@ class SungyoonHelperService : AccessibilityService() {
                     ACTION_STOP_RESERVATION -> stopReservation(fromUser = true)
                     ACTION_PAUSE_RESERVATION -> pauseReservation()
                     ACTION_RESET_RESERVATION -> resetReservation(forceFromUser = true)
-                    ACTION_START_SET -> setController?.start()
-                    ACTION_CANCEL_SET -> setController?.cancel()
-                    ACTION_PAUSE_SET -> setController?.pause()
-                    ACTION_RESUME_SET -> setController?.resume()
+                    ACTION_START_SET -> setController?.start(intent.getStringExtra(EXTRA_SET_ID))
+                    ACTION_CANCEL_SET -> setController?.cancel(setId = intent.getStringExtra(EXTRA_SET_ID))
+                    ACTION_PAUSE_SET -> setController?.pause(intent.getStringExtra(EXTRA_SET_ID))
+                    ACTION_RESUME_SET -> setController?.resume(intent.getStringExtra(EXTRA_SET_ID))
                     ACTION_RESUME_RESERVATION -> {
                         val manual = intent.getBooleanExtra(EXTRA_MANUAL_RESUME, false)
 
@@ -1161,6 +1161,7 @@ class SungyoonHelperService : AccessibilityService() {
         const val ACTION_START_SEQUENCE = "com.sungyoon.helper.action.START_SEQUENCE"
         const val ACTION_STOP_SEQUENCE = "com.sungyoon.helper.action.STOP_SEQUENCE"
 
+        const val EXTRA_SET_ID = "extra_set_id"
         const val ACTION_START_SET = "com.sungyoon.helper.action.START_SET"
         const val ACTION_CANCEL_SET = "com.sungyoon.helper.action.CANCEL_SET"
         const val ACTION_PAUSE_SET = "com.sungyoon.helper.action.PAUSE_SET"

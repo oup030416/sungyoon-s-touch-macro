@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 enum class SetPhase { IDLE, TOUCH, RUN, REST, WAIT }
-enum class SetStopReason { EMPTY, GESTURE_FAILED, CANCELLED, INTERRUPTED }
+enum class SetStopReason { EMPTY, GESTURE_FAILED, CANCELLED, INTERRUPTED, COMPLETED }
 
 data class SetGestureOptions(
     val intervalMs: Long = 1000L,
@@ -14,6 +14,7 @@ data class SetGestureOptions(
 )
 
 data class SetRunState(
+    val setId: String? = null,
     val active: Boolean = false,
     val paused: Boolean = false,
     val stopping: Boolean = false,

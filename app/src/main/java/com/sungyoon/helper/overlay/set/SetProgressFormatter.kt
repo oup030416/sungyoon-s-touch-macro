@@ -12,7 +12,7 @@ object SetProgressFormatter {
         SetStopReason.EMPTY -> context.getString(R.string.set_empty_message)
         SetStopReason.GESTURE_FAILED -> context.getString(R.string.set_failed_message, state.currentItem?.name.orEmpty())
         SetStopReason.INTERRUPTED -> context.getString(R.string.set_interrupted_message)
-        SetStopReason.CANCELLED, null -> null
+        SetStopReason.CANCELLED, SetStopReason.COMPLETED, null -> null
     }
 
     internal fun seconds(context: Context, milliseconds: Long): String =

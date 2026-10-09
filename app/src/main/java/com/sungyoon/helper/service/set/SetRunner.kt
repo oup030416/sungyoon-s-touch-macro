@@ -27,6 +27,7 @@ class SetRunner(
     private val nowMs: () -> Long,
     private val execute: suspend (HighlightingPoint, String) -> Boolean,
     private val sleep: suspend (Long) -> Unit = { delay(it) },
+    private val repeatEnabled: () -> Boolean = { true },
 ) {
     private val gate = Any()
     private val mutableState = MutableStateFlow(SetRunState())
@@ -172,6 +173,11 @@ class SetRunner(
                 if (next == null) {
                     if (items.value.none { it.isExecutable }) {
                         requestStop(SetStopReason.EMPTY)
+                        break
+                    }
+                    // Decide only after the final action, interval and reservation rest have finished.
+                    if (!repeatEnabled()) {
+                        requestStop(SetStopReason.COMPLETED)
                         break
                     }
                     synchronized(gate) {

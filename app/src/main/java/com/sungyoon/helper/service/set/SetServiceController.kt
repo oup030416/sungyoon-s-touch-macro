@@ -10,7 +10,6 @@ import com.sungyoon.helper.model.SetItem
 import com.sungyoon.helper.overlay.set.SetProgressFormatter
 import com.sungyoon.helper.overlay.set.SetMessageOverlayController
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -38,9 +37,12 @@ class SetServiceController(
 ) {
     private val scope = CoroutineScope(parentScope.coroutineContext + SupervisorJob(parentScope.coroutineContext[Job]))
     private val items = MutableStateFlow<List<SetItem>>(emptyList())
-    private val itemsReady = CompletableDeferred<Unit>()
+    private val repeat = MutableStateFlow(false)
+    private var ownerId: String? = null
+    private var controlGeneration = 0L
+    private var resumeJob: Job? = null
     private val messages = SetMessageOverlayController(context)
-    private val runner = SetRunner(scope, items, options, SystemClock::elapsedRealtime, execute)
+    private val runner = SetRunner(scope, items, options, SystemClock::elapsedRealtime, execute, repeatEnabled = { repeat.value })
     private var itemCollectionJob: Job? = null
     private var startJob: Job? = null
     private var stopping = false
@@ -55,11 +57,10 @@ class SetServiceController(
     }
 
     init {
-        itemCollectionJob = collectItems()
         scope.launch {
             var previousReason: SetStopReason? = null
             runner.state.collect { state ->
-                if (disposed) return@collect
+                if (disposed || (starting && !state.active) || stopping) return@collect
                 publish(state)
                 if (state.stopReason != previousReason) {
                     SetProgressFormatter.error(context, state)?.let(::showMessage)
@@ -69,33 +70,37 @@ class SetServiceController(
         }
     }
 
-    private fun collectItems(): Job = scope.launch {
-        SetStore.itemsFlow(context).collect { latest ->
-            if (disposed) return@collect
-            items.value = latest
-            itemsReady.complete(Unit)
-        }
-    }.also { job ->
-        job.invokeOnCompletion { cause ->
-            if (cause != null && !itemsReady.isCompleted) itemsReady.completeExceptionally(cause)
-        }
-    }
-
-    private suspend fun refreshItemsForStart() {
+    private fun collectItems(setId: String): Job = scope.launch {
         try {
-            // A completed edit can precede its flowOn(IO) delivery. Retire queued old emissions first.
-            itemCollectionJob?.cancelAndJoin()
-            items.value = SetStore.itemsFlow(context).first()
-        } finally {
-            if (!disposed && scope.isActive) {
-                // A cancelled startup still needs normal live updates for the next attempt.
-                itemCollectionJob = collectItems()
+            SetStore.setFlow(context, setId).collect { latest ->
+                if (disposed || ownerId != setId) return@collect
+                if (latest == null) { cancel(interrupted = true, setId = setId); return@collect }
+                items.value = latest.items
+                repeat.value = latest.repeatEnabled
             }
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (failure: Exception) {
+            Log.e(TAG, "Owned set collection failed", failure)
+            cancel(interrupted = true, setId = setId)
         }
     }
 
-    fun start() {
-        if (disposed || isTransitioning || SetRuntime.active) return
+    private suspend fun refreshItems(setId: String): Boolean {
+        // Retire queued old IO emissions before reading the just-flushed definition.
+        itemCollectionJob?.cancelAndJoin()
+        itemCollectionJob = null
+        val latest = SetStore.setFlow(context, setId).first() ?: return false
+        if (disposed || ownerId != setId) return false
+        items.value = latest.items
+        repeat.value = latest.repeatEnabled
+        itemCollectionJob = collectItems(setId)
+        return true
+    }
+
+    fun start(setId: String?) {
+        if (setId.isNullOrBlank() || disposed || isTransitioning || SetRuntime.active) return
+        ownerId = setId
+        controlGeneration++
         starting = true
         pauseRequested = false
         // The manager must see ownership before asynchronous loading, so opening it can queue a pause.
@@ -103,8 +108,7 @@ class SetServiceController(
         val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 awaitConfiguration()
-                itemsReady.await()
-                refreshItemsForStart()
+                if (!refreshItems(setId)) { showMessage(context.getString(R.string.set_missing_message)); return@launch }
                 currentCoroutineContext().ensureActive()
                 if (items.value.none { it.isExecutable }) {
                     showMessage(context.getString(R.string.set_empty_message))
@@ -134,24 +138,44 @@ class SetServiceController(
         job.start()
     }
 
-    fun pause() {
-        if (disposed) return
+    fun pause(setId: String? = null) {
+        if (disposed || (setId != null && ownerId != setId)) return
+        controlGeneration++
+        resumeJob?.cancel()
         pauseRequested = true
         if (starting) return
         runner.pause()
         publish(runner.state.value)
     }
 
-    fun resume() {
-        if (disposed || stopping || managerVisible()) return
-        pauseRequested = false
-        if (starting) return
-        runner.resume()
-        publish(runner.state.value)
+    fun resume(setId: String? = null) {
+        val owner = ownerId ?: return
+        if (disposed || stopping || managerVisible() || (setId != null && owner != setId)) return
+        if (starting) { pauseRequested = false; return }
+        val generation = ++controlGeneration
+        resumeJob?.cancel()
+        resumeJob = scope.launch {
+            try {
+                awaitConfiguration()
+                if (!refreshItems(owner)) { cancel(interrupted = true, setId = owner); return@launch }
+                currentCoroutineContext().ensureActive()
+                if (controlGeneration != generation || ownerId != owner || stopping || managerVisible()) return@launch
+                pauseRequested = false
+                runner.resume()
+                publish(runner.state.value)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (failure: Exception) {
+                Log.e(TAG, "Set resume failed", failure)
+                cancel(interrupted = true, setId = owner)
+            }
+        }
     }
 
-    fun cancel(interrupted: Boolean = false) {
-        if (disposed || stopping) return
+    fun cancel(interrupted: Boolean = false, setId: String? = null) {
+        if (disposed || stopping || (setId != null && ownerId != setId)) return
+        controlGeneration++
+        val resuming = resumeJob
+        resuming?.cancel()
         val wasActive = starting || SetRuntime.active
         val startup = startJob
         stopping = true
@@ -162,8 +186,10 @@ class SetServiceController(
         scope.launch {
             try {
                 startup?.join()
+                resuming?.join()
                 runner.stopAndJoin()
                 if (disposed) return@launch
+                stopping = false
                 publish(SetRunState(stopReason = if (interrupted) SetStopReason.INTERRUPTED else SetStopReason.CANCELLED))
                 if (interrupted && wasActive) showMessage(context.getString(R.string.set_interrupted_message))
             } finally {
@@ -189,7 +215,12 @@ class SetServiceController(
 
     private fun publish(state: SetRunState) {
         if (disposed) return
-        SetRuntime.update(state)
+        SetRuntime.update(state.copy(setId = if (state.active) ownerId else null))
+        if (!state.active && !starting && !stopping) {
+            itemCollectionJob?.cancel()
+            itemCollectionJob = null
+            ownerId = null
+        }
         onRuntimeChanged()
     }
 

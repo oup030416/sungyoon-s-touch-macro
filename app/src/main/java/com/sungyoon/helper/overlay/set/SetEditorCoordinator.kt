@@ -6,6 +6,9 @@ import android.view.View
 import com.sungyoon.helper.R
 import com.sungyoon.helper.data.SetStore
 import com.sungyoon.helper.model.SetItem
+import com.sungyoon.helper.model.SetDefinition
+import com.sungyoon.helper.service.set.SetRunState
+import kotlinx.coroutines.flow.first
 import com.sungyoon.helper.model.SetItemType
 import com.sungyoon.helper.service.set.SetRuntime
 import com.sungyoon.helper.util.toast
@@ -22,14 +25,14 @@ import kotlinx.coroutines.launch
 interface SetEditorHost {
     fun showSetContent(view: View?, showPointers: Boolean = false)
     fun minimizeSetContent()
-    fun setPointerEditTarget(itemId: String?)
+    fun setPointerEditTarget(setId: String?, itemId: String?)
     fun addPointer(isDrag: Boolean)
     fun clearPointers()
     fun openItemPresets(onBack: () -> Unit)
     fun renameItem(item: SetItem, onName: (String) -> Unit)
     fun confirmDelete(item: SetItem, onConfirm: () -> Unit)
-    fun startOrResumeSet()
-    fun cancelSetRun()
+    fun startOrResumeSet(setId: String)
+    fun cancelSetRun(setId: String)
     fun requestIme(show: Boolean)
 }
 
@@ -38,7 +41,8 @@ class SetEditorCoordinator(
     private val context: Context,
     scope: CoroutineScope,
     private val host: SetEditorHost,
-    initialItems: List<SetItem> = emptyList()
+    initialSet: SetDefinition,
+    private val onBack: () -> Unit,
 ) {
 
     private sealed interface Screen {
@@ -58,11 +62,18 @@ class SetEditorCoordinator(
     private val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val writes = mutableSetOf<Job>()
     private var disposed = false
-    private var items = initialItems
+    val setId = initialSet.id
+    private var definition = initialSet
+    private var items = initialSet.items
+    private var localRepeat: Boolean? = null
+    private var repeatRevision = 0L
+    private var failure: Exception? = null
+    private var screenGeneration = 0L
+    val navigationGeneration: Long get() = screenGeneration
     private var selectedId: String? = null
     private var screen: Screen = Screen.ListScreen
     private var visibleView: SetPanelView? = null
-    private var runtime = SetRuntime.state.value
+    private var runtime = ownedRuntime(SetRuntime.state.value)
     private var viewportHeight = 0
     private var listScrollPosition = 0
     var isOpen: Boolean = false
@@ -75,23 +86,28 @@ class SetEditorCoordinator(
             onAdd = ::showAdd,
             onDelete = ::deleteItem,
             onDuplicate = ::duplicateItem,
-            onStartOrResume = host::startOrResumeSet,
-            onCancel = host::cancelSetRun,
-            onMove = { id, target -> write { SetStore.moveItem(appContext, id, target) } }
+            onStartOrResume = { host.startOrResumeSet(setId) },
+            onCancel = { host.cancelSetRun(setId) },
+            onRepeat = ::toggleRepeat,
+            onMove = { id, target -> write { SetStore.moveItem(appContext, setId, id, target) } }
         )
     }
 
     init {
         uiScope.launch {
-            SetStore.itemsFlow(appContext).collect { savedItems ->
-                items = savedItems
+            SetStore.setFlow(appContext, setId).collect { savedSet ->
+                if (savedSet == null) return@collect
+                val itemsChanged = items != savedSet.items
+                definition = savedSet
+                items = savedSet.items
+                listPanel.setDefinition(definition.name, localRepeat ?: definition.repeatEnabled)
                 if (selectedId != null && items.none { it.id == selectedId }) selectedId = null
-                if (isOpen) updateVisibleItem()
+                if (isOpen && itemsChanged) updateVisibleItem()
             }
         }
         uiScope.launch {
             SetRuntime.state.collect { state ->
-                runtime = state
+                runtime = ownedRuntime(state)
                 if (isOpen) renderRuntime()
             }
         }
@@ -111,8 +127,8 @@ class SetEditorCoordinator(
         isOpen = false
         visibleView = null
         screen = Screen.ListScreen
-        host.setPointerEditTarget(null)
-        host.showSetContent(null)
+        host.setPointerEditTarget(null, null)
+        onBack()
     }
 
     fun dispose() {
@@ -128,6 +144,7 @@ class SetEditorCoordinator(
 
     suspend fun flushWrites() {
         while (writes.isNotEmpty()) writes.toList().joinAll()
+        failure?.let { failure = null; throw it }
     }
 
     fun setMaxViewportHeight(px: Int) {
@@ -137,7 +154,9 @@ class SetEditorCoordinator(
 
     private fun showList() {
         if (!isOpen || disposed) return
+        screenGeneration++
         screen = Screen.ListScreen
+        listPanel.setDefinition(definition.name, localRepeat ?: definition.repeatEnabled)
         listPanel.clearInlineMenu()
         listPanel.setItems(items, selectedId)
         listPanel.renderRuntime(runtime)
@@ -148,11 +167,12 @@ class SetEditorCoordinator(
     private fun showAdd() {
         if (screen == Screen.Add) return showList()
         rememberListScroll()
+        screenGeneration++
         screen = Screen.Add
         listPanel.showInlineMenu(null,
             SetItemType.entries.map { type -> SetListPanelView.typeLabel(context, type) to {
                 write {
-                    val added = SetStore.addItem(appContext, type)
+                    val added = SetStore.addItem(appContext, setId, type)
                     selectedId = added.id
                     if (isOpen && !disposed) showList()
                 }
@@ -167,7 +187,10 @@ class SetEditorCoordinator(
         screen = Screen.Menu(id)
         val options = mutableListOf(context.getString(R.string.set_rename) to {
             val latest = findItem(id)
-            if (latest != null) host.renameItem(latest) { name -> write { SetStore.renameItem(appContext, id, name) } }
+            val source = screenGeneration
+            if (latest != null) host.renameItem(latest) { name ->
+                if (!disposed && isOpen && screenGeneration == source) write { SetStore.renameItem(appContext, setId, id, name) }
+            }
         })
         when (item) {
             is SetItem.Touch -> options += context.getString(R.string.set_pointer_manage) to { showPointers(id) }
@@ -193,8 +216,10 @@ class SetEditorCoordinator(
             onAddTap = { host.addPointer(false) },
             onAddDrag = { host.addPointer(true) },
             onPresets = {
+                screenGeneration++
                 screen = Screen.Presets(id)
-                host.openItemPresets { if (isOpen) showPointers(id) }
+                val source = screenGeneration
+                host.openItemPresets { if (isOpen && !disposed && screenGeneration == source) showPointers(id) }
             }
         ), showPointers = true, targetId = id)
     }
@@ -203,7 +228,7 @@ class SetEditorCoordinator(
         val item = findItem(id) as? SetItem.Reserved ?: return showList()
         screen = Screen.Reservation(id)
         val panel = SetReservationPanelView(context, item, { showMenu(id) },
-            onValue = { config -> saveOption { SetStore.updateReservation(appContext, id, config) } },
+            onValue = { config -> saveOption { SetStore.updateReservation(appContext, setId, id, config) } },
             requestIme = host::requestIme)
         display(panel)
         panel.renderRuntime(runtime)
@@ -213,15 +238,17 @@ class SetEditorCoordinator(
         val item = findItem(id) as? SetItem.Wait ?: return showList()
         screen = Screen.Wait(id)
         display(SetWaitPanelView(context, item, { showMenu(id) },
-            onValue = { duration -> saveOption { SetStore.updateWait(appContext, id, duration) } },
+            onValue = { duration -> saveOption { SetStore.updateWait(appContext, setId, id, duration) } },
             requestIme = host::requestIme))
     }
 
     private fun deleteItem(id: String) {
         val item = findItem(id) ?: return
+        val source = screenGeneration
         host.confirmDelete(item) {
+            if (disposed || !isOpen || screenGeneration != source) return@confirmDelete
             write {
-                SetStore.deleteItem(appContext, item.id)
+                SetStore.deleteItem(appContext, setId, item.id)
                 if (selectedId == item.id) selectedId = null
             }
         }
@@ -230,7 +257,7 @@ class SetEditorCoordinator(
     private fun duplicateItem(id: String) {
         if (findItem(id) == null) return
         write {
-            val duplicate = SetStore.duplicateItem(appContext, id) ?: return@write
+            val duplicate = SetStore.duplicateItem(appContext, setId, id) ?: return@write
             selectedId = duplicate.id
             if (isOpen && (screen == Screen.ListScreen || screen is Screen.Menu)) {
                 listPanel.setSelectedItem(duplicate.id)
@@ -270,11 +297,12 @@ class SetEditorCoordinator(
     }
 
     private fun display(panel: SetPanelView, showPointers: Boolean = false, targetId: String? = null) {
+        screenGeneration++
         val alreadyVisible = visibleView === panel
         closeIme()
         visibleView = panel
         panel.setMaxViewportHeight(viewportHeight)
-        host.setPointerEditTarget(targetId)
+        host.setPointerEditTarget(if (targetId != null) setId else null, targetId)
         if (!alreadyVisible) host.showSetContent(panel, showPointers)
     }
 
@@ -290,6 +318,28 @@ class SetEditorCoordinator(
 
     private fun findItem(id: String): SetItem? = items.firstOrNull { it.id == id }
 
+    private fun ownedRuntime(state: SetRunState): SetRunState =
+        if (state.setId == setId) state else SetRunState()
+
+    private fun toggleRepeat() {
+        val enabled = !(localRepeat ?: definition.repeatEnabled)
+        val revision = ++repeatRevision
+        localRepeat = enabled
+        listPanel.setDefinition(definition.name, enabled)
+        write {
+            try {
+                SetStore.setRepeatEnabled(appContext, setId, enabled)
+            } catch (error: Exception) {
+                if (repeatRevision == revision) {
+                    localRepeat = SetStore.setFlow(appContext, setId).first()?.repeatEnabled
+                    if (!disposed && isOpen) listPanel.setDefinition(definition.name, localRepeat ?: definition.repeatEnabled)
+                }
+                throw error
+            }
+            // Keep the mounted editor's choice authoritative over delayed older acknowledgements.
+        }
+    }
+
     private fun saveOption(block: suspend () -> Boolean) {
         val sourcePanel = visibleView ?: return
         val revision = sourcePanel.clearSaveStatus()
@@ -302,12 +352,15 @@ class SetEditorCoordinator(
 
     private fun write(block: suspend () -> Unit) {
         if (disposed) return
+        val preceding = writes.toList()
         val job = writeScope.launch(start = CoroutineStart.LAZY) {
             try {
+                preceding.joinAll()
                 block()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                this@SetEditorCoordinator.failure = failure
                 Log.e("SetEditor", "Failed to persist a set edit", failure)
                 toast(appContext, appContext.getString(R.string.set_save_failed))
             }

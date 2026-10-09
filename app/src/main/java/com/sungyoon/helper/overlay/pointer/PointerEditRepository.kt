@@ -11,14 +11,14 @@ import kotlinx.coroutines.flow.map
 
 sealed interface PointerEditTarget {
     data object Global : PointerEditTarget
-    data class Item(val id: String) : PointerEditTarget
+    data class Item(val setId: String, val id: String) : PointerEditTarget
 }
 
 /** Each operation carries its target so a later navigation cannot redirect a pending save. */
 class PointerEditRepository(private val context: Context) {
     fun pointsFlow(target: PointerEditTarget): Flow<List<HighlightingPoint>> = when (target) {
         PointerEditTarget.Global -> PointsStore.pointsFlow(context)
-        is PointerEditTarget.Item -> SetStore.itemsFlow(context).map { items ->
+        is PointerEditTarget.Item -> SetStore.itemsFlow(context, target.setId).map { items ->
             items.firstOrNull { it.id == target.id }?.points.orEmpty()
         }.distinctUntilChanged()
     }
@@ -30,14 +30,14 @@ class PointerEditRepository(private val context: Context) {
     suspend fun replace(target: PointerEditTarget, points: List<HighlightingPoint>) {
         when (target) {
             PointerEditTarget.Global -> PointsStore.replaceAll(context, points)
-            is PointerEditTarget.Item -> SetStore.replacePoints(context, target.id, points)
+            is PointerEditTarget.Item -> SetStore.replacePoints(context, target.setId, target.id, points)
         }
     }
 
     suspend fun add(target: PointerEditTarget, point: HighlightingPoint) {
         when (target) {
             PointerEditTarget.Global -> PointsStore.addPoint(context, point)
-            is PointerEditTarget.Item -> SetStore.updatePoints(context, target.id) { points ->
+            is PointerEditTarget.Item -> SetStore.updatePoints(context, target.setId, target.id) { points ->
                 points + point.copy(index = (points.maxOfOrNull { it.index } ?: -1) + 1)
             }
         }
@@ -46,7 +46,7 @@ class PointerEditRepository(private val context: Context) {
     suspend fun delete(target: PointerEditTarget, id: String) {
         when (target) {
             PointerEditTarget.Global -> PointsStore.deletePoint(context, id)
-            is PointerEditTarget.Item -> SetStore.updatePoints(context, target.id) { points ->
+            is PointerEditTarget.Item -> SetStore.updatePoints(context, target.setId, target.id) { points ->
                 points.filterNot { it.id == id }
             }
         }
@@ -59,7 +59,7 @@ class PointerEditRepository(private val context: Context) {
             } else {
                 PointsStore.updateDragEndPosition(context, id, x, y)
             }
-            is PointerEditTarget.Item -> SetStore.updatePoints(context, target.id) { points ->
+            is PointerEditTarget.Item -> SetStore.updatePoints(context, target.setId, target.id) { points ->
                 points.map { point ->
                     if (point.id != id) point
                     else if (endpoint == PointerOverlayRootView.Endpoint.END) {

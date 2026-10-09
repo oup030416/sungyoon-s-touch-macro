@@ -42,11 +42,13 @@ class SetRunnerTest {
         actions: MutableList<Action> = mutableListOf(),
         options: () -> SetGestureOptions = { SetGestureOptions(intervalMs = 100L) },
         execute: (suspend (HighlightingPoint, String) -> Boolean)? = null,
+        repeat: () -> Boolean = { true },
     ) = SetRunner(
         scope = this,
         items = items,
         options = options,
         nowMs = { testScheduler.currentTime },
+        repeatEnabled = repeat,
         execute = execute ?: { point, label ->
             val duration = if (point.isEffectiveDrag) point.dragDurationMs else 50L
             actions += Action(point.id, testScheduler.currentTime, label, duration)
@@ -547,4 +549,106 @@ class SetRunnerTest {
         assertFalse(runner.state.value.active)
         assertFalse(runner.start())
     }
+    @Test fun finiteRunIncludesFinalTouchIntervalAndCanRestart() = runTest {
+        val items = MutableStateFlow<List<SetItem>>(listOf(touch("a", point("p"))))
+        val actions = mutableListOf<Action>()
+        val runner = runner(items, actions, repeat = { false })
+        runner.start()
+        runCurrent()
+        advance(149L)
+        assertTrue(runner.state.value.active)
+        advance(1L)
+        assertFalse(runner.state.value.active)
+        assertEquals(SetStopReason.COMPLETED, runner.state.value.stopReason)
+        assertNull(runner.state.value.currentItem)
+        assertEquals(1, actions.size)
+        assertTrue(runner.start())
+        runCurrent()
+        advance(150L)
+        assertEquals(2, actions.size)
+        assertEquals(SetStopReason.COMPLETED, runner.state.value.stopReason)
+    }
+
+    @Test fun finiteReservedRunIncludesLastRest() = runTest {
+        val reserved = SetItem.Reserved("r", "r", listOf(point("p")), ReservationConfig(1, 1, 2))
+        val runner = runner(MutableStateFlow(listOf<SetItem>(reserved)), repeat = { false })
+        runner.start()
+        runCurrent()
+        advance(3999L)
+        assertTrue(runner.state.value.active)
+        assertEquals(SetPhase.REST, runner.state.value.phase)
+        advance(1L)
+        assertEquals(SetStopReason.COMPLETED, runner.state.value.stopReason)
+        assertFalse(runner.state.value.active)
+    }
+
+    @Test fun repeatOffDuringPassFinishesRemainingItems() = runTest {
+        var repeat = true
+        val items = MutableStateFlow<List<SetItem>>(listOf(wait("a", 200L), wait("b", 300L)))
+        val runner = runner(items, repeat = { repeat })
+        runner.start()
+        runCurrent()
+        advance(100L)
+        repeat = false
+        advance(399L)
+        assertTrue(runner.state.value.active)
+        assertEquals("b", runner.state.value.currentItem?.id)
+        advance(1L)
+        assertEquals(SetStopReason.COMPLETED, runner.state.value.stopReason)
+    }
+
+    @Test fun repeatOnBeforeBoundaryContinuesAndLaterOffFinishesCurrentPass() = runTest {
+        var repeat = false
+        val runner = runner(MutableStateFlow(listOf<SetItem>(wait("a", 200L))), repeat = { repeat })
+        runner.start()
+        runCurrent()
+        advance(100L)
+        repeat = true
+        advance(100L)
+        assertTrue(runner.state.value.active)
+        assertEquals(2L, runner.state.value.pass)
+        repeat = false
+        advance(200L)
+        assertEquals(SetStopReason.COMPLETED, runner.state.value.stopReason)
+    }
+
+    @Test fun pausedFinalWaitUsesLatestRepeatOnResumeAndCancelStillWins() = runTest {
+        var repeat = true
+        val items = MutableStateFlow<List<SetItem>>(listOf(wait("a", 200L)))
+        val runner = runner(items, repeat = { repeat })
+        runner.start()
+        runCurrent()
+        advance(100L)
+        runner.pause()
+        repeat = false
+        advance(5000L)
+        assertTrue(runner.state.value.active)
+        assertTrue(runner.state.value.paused)
+        runner.resume()
+        runCurrent()
+        advance(100L)
+        assertEquals(SetStopReason.COMPLETED, runner.state.value.stopReason)
+        runner.start()
+        runCurrent()
+        runner.stopAndJoin()
+        assertEquals(SetStopReason.CANCELLED, runner.state.value.stopReason)
+    }
+
+    @Test fun finitePassKeepsReorderDeferralRule() = runTest {
+        val a = touch("a", point("pa"))
+        val b = touch("b", point("pb"))
+        val c = touch("c", point("pc"))
+        val items = MutableStateFlow<List<SetItem>>(listOf(a, b, c))
+        val actions = mutableListOf<Action>()
+        val runner = runner(items, actions, repeat = { false })
+        runner.start()
+        runCurrent()
+        advance(160L)
+        items.value = listOf(c, a, b)
+        runCurrent()
+        advance(200L)
+        assertEquals(listOf("pa", "pb"), actions.map { it.id })
+        assertEquals(SetStopReason.COMPLETED, runner.state.value.stopReason)
+    }
+
 }
