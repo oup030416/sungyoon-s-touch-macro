@@ -47,7 +47,7 @@ class SetCatalogCoordinator(
         private set
     var isOpen = false
         private set
-    private val panel = SetCatalogPanelView(context, ::close, ::openEditor, ::rename, ::duplicate, ::add, ::delete, ::move)
+    private val panel = SetCatalogPanelView(context, ::close, ::openEditor, ::rename, ::duplicate, ::add, ::move)
 
     init {
         uiScope.launch {
@@ -86,7 +86,7 @@ class SetCatalogCoordinator(
         generation++
         retireEditor()
         isOpen = true
-        val next = SetEditorCoordinator(context, uiScope, host, definition, ::open)
+        val next = SetEditorCoordinator(context, uiScope, host, definition, ::open) { delete(id) }
         editors += next
         editor = next
         next.setMaxViewportHeight(viewportHeight)
@@ -177,15 +177,21 @@ class SetCatalogCoordinator(
         write { SetStore.moveSet(context, id, toIndex) }
     }
 
-    private fun delete() {
-        val set = sets.firstOrNull { it.id == selectedId } ?: return
+    private fun delete(id: String) {
+        val set = sets.firstOrNull { it.id == id } ?: return
         if (SetRuntime.active && SetRuntime.state.value.setId == set.id) {
             toast(context, context.getString(R.string.set_catalog_delete_blocked)); return
         }
         val source = generation
+        val sourceEditor = editor?.takeIf { it.setId == id } ?: return
         host.confirmDeleteSet(set) {
             if (disposed || generation != source) return@confirmDeleteSet
             write {
+                if (SetRuntime.active && SetRuntime.state.value.setId == set.id) {
+                    toast(context, context.getString(R.string.set_catalog_delete_blocked)); return@write
+                }
+                // Settle pending editor saves before removing their target.
+                sourceEditor.flushWrites()
                 if (SetRuntime.active && SetRuntime.state.value.setId == set.id) {
                     toast(context, context.getString(R.string.set_catalog_delete_blocked)); return@write
                 }

@@ -24,6 +24,7 @@ import com.sungyoon.helper.service.set.SetRunState
 class SetListPanelView(
     context: Context,
     onBack: () -> Unit,
+    onDeleteSet: () -> Unit,
     private val onSelect: (String) -> Unit,
     private val onToggleMenu: (String) -> Unit,
     private val onAdd: () -> Unit,
@@ -34,6 +35,7 @@ class SetListPanelView(
     private val onRepeat: () -> Unit,
     private val onMove: (String, Int) -> Unit
 ) : SetPanelView(context, context.getString(R.string.set_title), onBack) {
+    init { addDeleteAction(onDeleteSet) }
     private val progressBar = ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply {
         max = 100
         progressTintList = ColorStateList.valueOf(Color.parseColor("#66D58A"))

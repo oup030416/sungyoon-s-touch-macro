@@ -43,6 +43,7 @@ class SetEditorCoordinator(
     private val host: SetEditorHost,
     initialSet: SetDefinition,
     private val onBack: () -> Unit,
+    private val onDeleteSet: () -> Unit,
 ) {
 
     private sealed interface Screen {
@@ -81,6 +82,7 @@ class SetEditorCoordinator(
     private val listPanel by lazy {
         SetListPanelView(context,
             onBack = ::close,
+            onDeleteSet = onDeleteSet,
             onSelect = { selectedId = it },
             onToggleMenu = ::showMenu,
             onAdd = ::showAdd,

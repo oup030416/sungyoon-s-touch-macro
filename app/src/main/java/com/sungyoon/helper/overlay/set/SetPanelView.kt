@@ -145,6 +145,13 @@ open class SetPanelView(
         })
     }
 
+    protected fun addDeleteAction(onDelete: () -> Unit) {
+        header.addView(context.setAction(context.getString(R.string.dialog_delete), Color.parseColor("#B93A45"), onDelete),
+            header.childCount - 1, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = context.setDp(8)
+            })
+    }
+
     protected fun addSaveStatus(centered: Boolean = false) {
         val status = context.setText(context.getString(R.string.set_auto_saved), 12f).apply {
             gravity = if (centered) Gravity.CENTER else Gravity.START

@@ -19,11 +19,9 @@ class SetCatalogPanelView(
     private val onRename: (String) -> Unit,
     private val onDuplicate: (String) -> Unit,
     onAdd: () -> Unit,
-    onDelete: () -> Unit,
     private val onMove: (String, Int) -> Unit,
 ) : SetPanelView(context, context.getString(R.string.set_catalog_title), onBack) {
     private val rows = LinearLayout(context).apply { orientation = VERTICAL }
-    private val delete = context.setAction(context.getString(R.string.dialog_delete), Color.parseColor("#B93A45"), onDelete)
     private val rowViews = linkedMapOf<String, LinearLayout>()
     private var entries = emptyList<SetDefinition>()
     private var pendingRender: Pair<List<SetDefinition>, String?>? = null
@@ -55,7 +53,6 @@ class SetCatalogPanelView(
         body.addView(rows)
         body.addView(context.setAction(context.getString(R.string.set_catalog_add), Color.parseColor("#4A4A4A"), onAdd),
             LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { topMargin = context.setDp(12) })
-        footer.addView(delete, LayoutParams(context.setDp(80), LayoutParams.WRAP_CONTENT))
     }
 
     fun savedScrollPosition(): Int = bodyScrollPosition()
@@ -120,8 +117,6 @@ class SetCatalogPanelView(
             rowViews[set.id] = row
             rows.addView(row, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { bottomMargin = context.setDp(8) })
         }
-        delete.isEnabled = sets.any { it.id == selectedId }
-        delete.alpha = if (delete.isEnabled) 1f else 0.4f
         restoreSavedScrollPosition(scroll)
     }
 
