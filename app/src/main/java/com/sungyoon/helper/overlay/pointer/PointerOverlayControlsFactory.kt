@@ -133,8 +133,8 @@ object PointerOverlayControlsFactory {
 
         titleCol.addView(titleText)
         headerRow.addView(titleCol)
-        headerRow.addView(collapseBtn)
         headerRow.addView(feedbackBtn)
+        headerRow.addView(collapseBtn)
         headerRow.addView(closeBtn)
 
         val hintText = TextView(context).apply {
